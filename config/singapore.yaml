@@ -1,0 +1,28 @@
+# Singapore Migration Configuration
+target:
+  jurisdiction: Singapore
+  region: ap-southeast-1
+  provider: aws
+  compliance_framework: PDPA + MAS AI Guidelines
+
+encryption:
+  method: AES-256-GCM
+  key_rotation: 90_days
+
+desensitization:
+  pii:
+    - email
+    - phone
+    - full_name
+    - address
+    - national_id
+  strategy: tokenization + redaction
+
+logging:
+  level: INFO
+  destination: compliance_logs/
+  retention_days: 2555  # 7 years for regulatory purposes
+
+network:
+  transfer_method: AWS Direct Connect or accelerated S3
+  bandwidth_mbps: 10000

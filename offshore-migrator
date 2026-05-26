@@ -1,0 +1,3 @@
+#!/bin/bash
+# Wrapper script for Offshore Data Migrator
+python3 src/offshore_migrator.py "$@"
