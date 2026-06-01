@@ -1,0 +1,34 @@
+{
+  "profile": "pipl",
+  "full_name": "Personal Information Protection Law (China)",
+  "timestamp": "2026-05-31",
+  "compliance_status": "pending_review",
+  "violations": [
+    "[PIPL] Required field 'full_name' was not found in masked fields. Ensure this field is present and masked."
+  ],
+  "recommendations": [
+    "PIPL: Prepare CAC security assessment filing if volume > 100k records or sensitive data.",
+    "Generate declaration template for recipient country safeguards."
+  ],
+  "sensitive_fields_handled": [
+    "chinese_id",
+    "national_id",
+    "credit_card",
+    "bank_account",
+    "passport",
+    "biometric",
+    "medical",
+    "religious",
+    "sexual_orientation"
+  ],
+  "encryption_enforced": true,
+  "audit_required": true,
+  "security_assessment_required": true,
+  "data_localization": true,
+  "cross_border_paths": [
+    "通过安全评估 (Security Assessment)",
+    "通过专业机构认证 (Certification)",
+    "签署标准合同 (Standard Contract / SCCs)"
+  ],
+  "notes": "PIPL 是中国最严格的个人信息保护法。- 敏感个人信息需单独同意 + 更高保护措施- 重要数据 / 大规模个人信息出境必须进行安全评估- 默认禁止直接跨境传输，需满足三种合法路径之一- 建议生成安全评估申报材料辅助文档"
+}

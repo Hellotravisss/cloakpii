@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "offshore-data-migrator"
-version = "1.0.0"
+version = "1.1.0"
 description = "Secure, compliant offshore data migration toolkit"
 requires-python = ">=3.10"
 dependencies = [
@@ -20,6 +20,9 @@ offshore-migrator = "offshore_migrator.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools]
+package-dir = {"" = "src"}
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

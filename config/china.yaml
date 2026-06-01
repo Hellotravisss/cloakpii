@@ -1,7 +1,7 @@
 source: examples
-output: output/singapore
-target: singapore
-compliance_profile: pdpa
+output: output/china
+target: china
+compliance_profile: pipl
 workers: 4
 batch_size: 0
 show_progress: true

@@ -162,6 +162,32 @@ def migrate_command(args):
     # Print summary
     _print_summary(report)
 
+    # Handle --compliance-report flag (for pipl/pdpa)
+    if getattr(args, "compliance_report", False):
+        if compliance.lower() in ("pipl", "pdpa"):
+            try:
+                from .compliance import get_profile, generate_compliance_report
+                profile = get_profile(compliance.lower())
+                migration_results = report.to_dict()
+                comp_report = generate_compliance_report(profile, migration_results)
+
+                output.mkdir(parents=True, exist_ok=True)
+
+                # Save JSON report
+                json_path = output / f"compliance_report_{compliance.lower()}.json"
+                json_path.write_text(json.dumps(comp_report, indent=2), encoding="utf-8")
+                logger.info(f"Compliance report (JSON) → {json_path}")
+
+                # Generate and save MD report
+                md_content = _format_compliance_report_md(comp_report)
+                md_path = output / f"compliance_report_{compliance.lower()}.md"
+                md_path.write_text(md_content, encoding="utf-8")
+                logger.info(f"Compliance report (MD) → {md_path}")
+            except Exception as e:
+                logger.error(f"Failed to generate compliance report: {e}")
+        else:
+            logger.warning("--compliance-report only supported for pipl or pdpa profiles")
+
 
 def verify_command(args):
     """Verify file integrity against a manifest."""
@@ -231,11 +257,11 @@ def status_command(args):
 
 
 def profiles_command(args):
-    """List available compliance profiles."""
+    """List available compliance profiles with Route A (PIPL/PDPA) details."""
     from .compliance import list_profiles, get_profile
 
     print("\n" + "=" * 60)
-    print("  COMPLIANCE PROFILES")
+    print("  COMPLIANCE PROFILES (Route A: PIPL + PDPA Focus)")
     print("=" * 60)
 
     for name in list_profiles():
@@ -243,16 +269,27 @@ def profiles_command(args):
         print(f"\n  {name.upper()}")
         print(f"    {profile.full_name}")
         print(f"    Required fields: {', '.join(profile.required_pii_fields)}")
+        if profile.sensitive_pii_fields:
+            print(f"    Sensitive fields: {', '.join(profile.sensitive_pii_fields)}")
         if profile.retention_policy_days:
             print(f"    Retention: {profile.retention_policy_days} days")
+        if profile.dpo_required:
+            print(f"    DPO Required: Yes (PDPA)")
+        if profile.requires_security_assessment:
+            print(f"    Security Assessment: Required (PIPL)")
+        if profile.access_request_days:
+            print(f"    Access Request SLA: {profile.access_request_days} days")
         if profile.data_localization:
             print(f"    Data localization: Required")
+        if profile.cross_border_conditions:
+            print(f"    Cross-border paths: {len(profile.cross_border_conditions)} options")
         if not profile.cross_border_transfer_allowed:
-            print(f"    Cross-border transfer: NOT allowed")
-        print(f"    Notes: {profile.notes[:80]}...")
+            print(f"    Cross-border transfer: NOT allowed (default)")
+        print(f"    Notes: {profile.notes[:100]}...")
 
     print("\n" + "=" * 60)
-    print()
+    print("  Use: offshore-migrator migrate --compliance pipl --compliance-report")
+    print("=" * 60 + "\n")
 
 
 # ---------------------------------------------------------------------------
@@ -413,6 +450,84 @@ def _print_summary(report):
     print("=" * 60 + "\n")
 
 
+def _format_compliance_report_md(report: dict) -> str:
+    """Format compliance report into professional Markdown (Route A focus)."""
+    lines = []
+    profile = report.get("profile", "")
+    full_name = report.get("full_name", profile.upper())
+    
+    # Header
+    lines.append(f"# Compliance Report — {full_name}")
+    lines.append(f"**Generated:** {report.get('timestamp', '')}")
+    lines.append(f"**Status:** `{report.get('compliance_status', 'pending_review')}`")
+    lines.append("")
+    
+    # Violations
+    if report.get("violations"):
+        lines.append("## ⚠️ Violations")
+        for v in report["violations"]:
+            lines.append(f"- {v}")
+        lines.append("")
+    
+    # Recommendations
+    if report.get("recommendations"):
+        lines.append("## ✅ Recommendations")
+        for r in report["recommendations"]:
+            lines.append(f"- {r}")
+        lines.append("")
+    
+    # Route A Special Sections
+    if profile == "pipl":
+        lines.append("## 🇨🇳 PIPL Specific Requirements")
+        if report.get("security_assessment_required"):
+            lines.append("- **Security Assessment Required**: Yes (CAC filing needed for >100k records or sensitive data)")
+        if report.get("data_localization"):
+            lines.append("- **Data Localization**: Required")
+        if report.get("cross_border_paths"):
+            lines.append("- **Legal Transfer Paths**:")
+            for path in report["cross_border_paths"]:
+                lines.append(f"  - {path}")
+        lines.append("")
+    
+    elif profile == "pdpa":
+        lines.append("## 🇸🇬 PDPA Specific Requirements")
+        if report.get("dpo_required"):
+            lines.append("- **Data Protection Officer (DPO)**: Mandatory appointment required")
+        if report.get("access_request_sla_days"):
+            lines.append(f"- **Access/Correction Request SLA**: {report['access_request_sla_days']} days")
+        lines.append("")
+    
+    # Sensitive Fields
+    if report.get("sensitive_fields_handled"):
+        lines.append("## 🔒 Sensitive / Required PII Fields Handled")
+        fields = report["sensitive_fields_handled"]
+        if isinstance(fields, list) and fields:
+            lines.append("| Field | Category |")
+            lines.append("|-------|----------|")
+            for f in fields:
+                cat = "Sensitive" if f in ["chinese_id", "national_id", "credit_card", "bank_account", "passport"] else "Standard"
+                lines.append(f"| `{f}` | {cat} |")
+        lines.append("")
+    
+    # General Details
+    lines.append("## 📋 General Details")
+    skip_keys = {"profile", "full_name", "timestamp", "compliance_status", "violations", 
+                 "recommendations", "notes", "sensitive_fields_handled", 
+                 "security_assessment_required", "data_localization", "cross_border_paths",
+                 "dpo_required", "access_request_sla_days"}
+    
+    for k, v in report.items():
+        if k not in skip_keys and v not in (None, [], {}):
+            lines.append(f"- **{k.replace('_', ' ').title()}**: {v}")
+    
+    # Notes
+    if report.get("notes"):
+        lines.append("")
+        lines.append("## 📝 Regulatory Notes")
+        lines.append(report["notes"])
+    
+    return "\n".join(lines)
+
 # ---------------------------------------------------------------------------
 # Argument parser
 # ---------------------------------------------------------------------------
@@ -476,6 +591,7 @@ Environment variables:
     p.add_argument("--batch-size", type=int, default=0, help="Max files to process (0=all)")
     p.add_argument("--no-progress", action="store_true", help="Disable progress bar")
     p.add_argument("--compliance-profile", default="", help="Compliance profile (gdpr/pdpa/ccpa/lgpd/pipl)")
+    p.add_argument("--compliance-report", action="store_true", help="Generate detailed compliance report (JSON + MD) for pipl/pdpa")
     p.add_argument("--compress", action="store_true", help="Compress encrypted output (gzip)")
     p.add_argument("--resume", action="store_true", help="Skip already processed files")
     p.add_argument("--no-manifest", action="store_true", help="Skip manifest generation")
@@ -497,6 +613,12 @@ Environment variables:
     # --- profiles ---
     p = sub.add_parser("profiles", help="List compliance profiles")
     p.set_defaults(func=profiles_command)
+    # --- assessment ---
+    p = sub.add_parser("assessment", help="Generate PIPL Security Assessment template")
+    p.add_argument("--profile", default="pipl", help="Compliance profile (only pipl supported)")
+    p.add_argument("--output", default=None, help="Output file path (JSON)")
+    p.set_defaults(func=assessment_command)
+
 
     # --- scan ---
     p = sub.add_parser("scan", help="Scan for PII without migration")

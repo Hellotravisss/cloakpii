@@ -1,0 +1,26 @@
+[
+  {
+    "id": 1,
+    "name": "Tan Wei Ming",
+    "email": "tanweiming@example.sg",
+    "phone": "+65 9123 4567",
+    "nric": "S1234567A",
+    "bank_account": "123456789012"
+  },
+  {
+    "id": 2,
+    "name": "Lim Xiao Hui",
+    "email": "limxiaohui@example.sg",
+    "phone": "+65 8123 4567",
+    "nric": "T9876543B",
+    "bank_account": "987654321098"
+  },
+  {
+    "id": 3,
+    "name": "Chen Jia Hao",
+    "email": "chenjiahao@example.sg",
+    "phone": "+65 9234 5678",
+    "nric": "S7654321C",
+    "bank_account": "112233445566"
+  }
+]

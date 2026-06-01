@@ -56,3 +56,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - CLI with `init`, `encrypt`, `decrypt`, `migrate` commands
 - Dry-run mode for migration preview
 - 39 comprehensive tests
+
+## [1.1.0] - 2026-06-01
+### Added
+- Route A: Deep PIPL (China) + PDPA (Singapore) support
+- `generate_compliance_report()` with security assessment + DPO notes
+- `--compliance-report` flag for migrate command (generates JSON + MD)
+- Enhanced `profiles` command with Route A details (DPO, Security Assessment, SLA, etc.)
+- `config/china.yaml` and `config/singapore.yaml`
+- Dynamic timestamp in compliance reports
+
+### Changed
+- `profiles` output now shows sensitive fields, cross-border paths, etc.
+- Timestamp in reports is now UTC ISO format instead of hardcoded
+
+### Verified
+- 134/134 tests passing
+- Full PIPL/PDPA report generation working

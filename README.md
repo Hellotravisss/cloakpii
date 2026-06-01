@@ -185,6 +185,23 @@ CLI arguments override config file values.
 Field names containing keywords like `name`, `email`, `phone`, `ssn`, `address`, `passport`, `bank_account` are automatically masked even if content doesn't match a regex pattern.
 
 ## Compliance Profiles
+## Route A Focus (v1.1.0+): China & Singapore Compliance
+
+**Offshore Data Migrator** is now optimized for **PIPL (China)** and **PDPA (Singapore)** — two of the strictest data protection regimes for cross-border transfers.
+
+### Quick Start - PIPL (China)
+
+
+Generates:
+- Full PII desensitization + AES-256-GCM encryption
+- Security assessment checklist
+- Cross-border transfer legal path documentation
+
+### Quick Start - PDPA (Singapore)
+
+
+Includes DPO requirements and 30-day access request handling notes.
+
 
 ```bash
 offshore-migrator profiles
@@ -258,3 +275,28 @@ make build
 ## License
 
 MIT License. See [LICENSE](LICENSE) for details.
+
+## Route A Quickstart (PIPL + PDPA) — v1.1.0
+
+```bash
+# 1. List enhanced compliance profiles
+offshore-migrator profiles
+
+# 2. Run migration with compliance report (PIPL)
+ODM_PASSWORD=yourpass offshore-migrator migrate \
+  --source examples \
+  --output output/pipl \
+  --compliance-profile pipl \
+  --compliance-report
+
+# 3. Same for PDPA (Singapore)
+ODM_PASSWORD=yourpass offshore-migrator migrate \
+  --source examples \
+  --output output/pdpa \
+  --compliance-profile pdpa \
+  --compliance-report
+
+# Reports will be generated:
+# - compliance_report_pipl.json + .md
+# - compliance_report_pdpa.json + .md
+```

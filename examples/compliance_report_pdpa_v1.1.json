@@ -1,0 +1,17 @@
+{
+  "profile": "pdpa",
+  "full_name": "Personal Data Protection Act (Singapore)",
+  "timestamp": "2026-05-31",
+  "compliance_status": "pending_review",
+  "violations": [],
+  "recommendations": [
+    "PDPA: Appoint DPO and log consent records for all collections.",
+    "Ensure 30-day response SLA for data access/correction requests."
+  ],
+  "sensitive_fields_handled": [],
+  "encryption_enforced": true,
+  "audit_required": true,
+  "dpo_required": true,
+  "access_request_sla_days": 30,
+  "notes": "PDPA \u8981\u6c42\u7ec4\u7ec7\u6307\u5b9a\u6570\u636e\u4fdd\u62a4\u5b98 (DPO)\uff0c\u5e76\u5728 30 \u5929\u5185\u54cd\u5e94\u4e2a\u4eba\u6570\u636e\u8bbf\u95ee/\u66f4\u6b63\u8bf7\u6c42\u3002\u8de8\u5883\u4f20\u8f93\u9700\u786e\u4fdd\u63a5\u6536\u65b9\u63d0\u4f9b\u4e0e PDPA \u540c\u7b49\u6c34\u5e73\u7684\u4fdd\u62a4\u3002\u6536\u96c6\u3001\u4f7f\u7528\u548c\u62ab\u9732\u4e2a\u4eba\u6570\u636e\u5747\u9700\u83b7\u5f97\u540c\u610f\u3002"
+}
