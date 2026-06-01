@@ -74,6 +74,19 @@ def load_config(path: Path) -> MigrationConfig:
         if hasattr(config, key):
             setattr(config, key, value)
 
+    # Auto-register custom PII patterns if present
+    if config.custom_pii_patterns:
+        try:
+            from .pii import register_custom_pii_pattern, CUSTOM_PII_PATTERNS
+            CUSTOM_PII_PATTERNS.clear()  # Clear previous registrations
+            for pattern_str in config.custom_pii_patterns:
+                if ":" in pattern_str:
+                    name, pattern = pattern_str.split(":", 1)
+                    register_custom_pii_pattern(name.strip(), pattern.strip())
+        except Exception as e:
+            import logging
+            logging.getLogger("OffshoreMigrator").warning(f"Failed to register custom PII patterns: {e}")
+
     return config
 
 
@@ -143,5 +156,18 @@ def merge_config_with_args(
     # Handle --no-progress flag
     if hasattr(args, "no_progress") and args.no_progress:
         config.show_progress = False
+
+    # Auto-register custom PII patterns if present
+    if config.custom_pii_patterns:
+        try:
+            from .pii import register_custom_pii_pattern, CUSTOM_PII_PATTERNS
+            CUSTOM_PII_PATTERNS.clear()  # Clear previous registrations
+            for pattern_str in config.custom_pii_patterns:
+                if ":" in pattern_str:
+                    name, pattern = pattern_str.split(":", 1)
+                    register_custom_pii_pattern(name.strip(), pattern.strip())
+        except Exception as e:
+            import logging
+            logging.getLogger("OffshoreMigrator").warning(f"Failed to register custom PII patterns: {e}")
 
     return config

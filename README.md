@@ -300,3 +300,82 @@ ODM_PASSWORD=yourpass offshore-migrator migrate \
 # - compliance_report_pipl.json + .md
 # - compliance_report_pdpa.json + .md
 ```
+
+## New in v1.1.0 (Route A)
+
+### New Commands
+```bash
+# Scan a directory for PII without migrating
+offshore-migrator scan --source data/ --output scan_report.json
+
+# Generate PIPL Security Assessment template
+offshore-migrator assessment --output security_assessment.json
+```
+
+### Enhanced migrate command
+```bash
+# Generate professional compliance report (JSON + Markdown)
+offshore-migrator migrate \
+  --source examples \
+  --compliance-profile pipl \
+  --compliance-report
+```
+
+### Configuration
+You can now store password in your `migration.yaml`:
+```yaml
+password: "your-password-here"
+```
+
+
+## Incremental Migration & Resume
+
+Offshore Data Migrator supports **incremental/resume** migrations using a local SQLite state database.
+
+### How it works
+
+- When you run with `--resume`, the tool records each successfully processed file (path + SHA256 hash) in `.migration_state.db` inside the output directory.
+- On subsequent runs with `--resume`, files with the **same path and hash** are automatically skipped.
+- If a file is modified after being processed, its hash changes and it will be re-processed.
+
+### Usage
+
+```bash
+# First run (processes everything)
+offshore-migrator migrate --source data/ --output out/ --resume
+
+# Later runs (only processes new or changed files)
+offshore-migrator migrate --source data/ --output out/ --resume
+```
+
+### State Database Location
+
+The state file is stored at:
+```
+<output_directory>/.migration_state.db
+```
+
+You can safely delete this file to force a full re-processing.
+
+### Corruption Recovery
+
+If the state database becomes corrupted (e.g. interrupted write), the migrator will automatically delete it and start fresh on the next run.
+
+### Advanced: Custom State Location
+
+For advanced use cases, you can manage the state manually via the Python API:
+
+```python
+from offshore_migrator.state import MigrationState
+from offshore_migrator.migrate import run_migration
+from pathlib import Path
+
+state = MigrationState(Path("custom_state.db"))
+report = run_migration(
+    source_dir=Path("data"),
+    output_dir=Path("out"),
+    password="secret",
+    resume=True,
+    state=state
+)
+```

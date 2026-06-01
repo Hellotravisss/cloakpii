@@ -291,6 +291,29 @@ def desensitize_text(text: str) -> tuple:
         
         text = pattern.sub(make_replacer(masker_fn), text)
     
+    # ML-based detection (if available)
+    if False:
+        ml_results = detect_pii_ml(text)
+        for entity_type, detected_text, confidence in ml_results:
+            if confidence > 0.7:  # High confidence threshold
+                # Simple masking for ML detections
+                text = text.replace(detected_text, f"[{entity_type}]")
+                count += 1
+
+    # Apply custom patterns
+    for name, pattern in CUSTOM_PII_PATTERNS:
+        try:
+            custom_re = re.compile(pattern)
+            def make_custom_replacer(pname):
+                def _replace(m):
+                    nonlocal count
+                    count += 1
+                    return f"[{pname}]"
+                return _replace
+            text = custom_re.sub(make_custom_replacer(name), text)
+        except re.error:
+            continue
+
     return text, count
 
 
@@ -691,3 +714,27 @@ def desensitize_sqlite(input_path: Path, output_path: Path) -> DesensitizeReport
     conn.close()
 
     return report
+
+# Custom PII pattern support (v1.2)
+CUSTOM_PII_PATTERNS: list[tuple[str, str]] = []
+
+def register_custom_pii_pattern(name: str, pattern: str):
+    """Register a custom PII detection pattern."""
+    import re
+    try:
+        re.compile(pattern)
+        CUSTOM_PII_PATTERNS.append((name, pattern))
+    except re.error:
+        raise ValueError(f"Invalid regex pattern for {name}: {pattern}")
+
+def _apply_custom_patterns(text: str) -> list[tuple[str, str]]:
+    """Apply registered custom PII patterns to text."""
+    import re
+    matches = []
+    for name, pattern in CUSTOM_PII_PATTERNS:
+        try:
+            for m in re.finditer(pattern, text):
+                matches.append((name, m.group()))
+        except re.error:
+            continue
+    return matches

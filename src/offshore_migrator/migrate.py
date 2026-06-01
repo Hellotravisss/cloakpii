@@ -125,6 +125,7 @@ def run_migration(
     compress: bool = False,
     skip_patterns: Optional[list[str]] = None,
     resume: bool = False,
+    state=None,  # MigrationState for incremental processing
 ) -> MigrationReport:
     """
     Execute migration pipeline: discover → desensitize → encrypt → verify.
@@ -223,9 +224,9 @@ def run_migration(
             logger.warning(f"  {f.relative_to(source_dir)}: {size / (1024*1024):.1f} MB")
 
     if workers <= 1:
-        _process_sequential(files, source_dir, output_dir, password, dry_run, mode_label, report, show_progress, compress, audit)
+        _process_sequential(files, source_dir, output_dir, password, dry_run, mode_label, report, show_progress, compress, audit, state)
     else:
-        _process_parallel(files, source_dir, output_dir, password, dry_run, mode_label, report, workers, show_progress, compress)
+        _process_parallel(files, source_dir, output_dir, password, dry_run, mode_label, report, workers, show_progress, compress, state)
 
     # Compliance validation
     if compliance_profile and not dry_run:
@@ -279,21 +280,21 @@ def run_migration(
     return report
 
 
-def _process_sequential(files, source_dir, output_dir, password, dry_run, mode_label, report, show_progress, compress, audit):
+def _process_sequential(files, source_dir, output_dir, password, dry_run, mode_label, report, show_progress, compress, audit, state=None):
     """Process files one by one."""
     iterator = _maybe_tqdm(files, "Processing", show_progress)
     for filepath in iterator:
-        _process_single_file(filepath, source_dir, output_dir, password, dry_run, mode_label, report, compress, audit)
+        _process_single_file(filepath, source_dir, output_dir, password, dry_run, mode_label, report, compress, audit, state)
 
 
-def _process_parallel(files, source_dir, output_dir, password, dry_run, mode_label, report, workers, show_progress, compress):
+def _process_parallel(files, source_dir, output_dir, password, dry_run, mode_label, report, workers, show_progress, compress, state=None):
     """Process files in parallel using ThreadPoolExecutor."""
     results = []
     with ThreadPoolExecutor(max_workers=workers) as executor:
         future_to_file = {
             executor.submit(
                 _process_single_file_standalone,
-                filepath, source_dir, output_dir, password, dry_run, compress
+                filepath, source_dir, output_dir, password, dry_run, compress, state
             ): filepath
             for filepath in files
         }
@@ -328,12 +329,19 @@ def _process_parallel(files, source_dir, output_dir, password, dry_run, mode_lab
             report.errors.append(error)
 
 
-def _process_single_file(filepath, source_dir, output_dir, password, dry_run, mode_label, report, compress, audit):
+def _process_single_file(filepath, source_dir, output_dir, password, dry_run, mode_label, report, compress, audit, state=None):
     """Process a single file (sequential mode)."""
     rel = filepath.relative_to(source_dir)
     file_type = _classify_file(filepath)
     if file_type is None:
         return
+    
+    # Incremental migration check
+    if state is not None:
+        file_hash = _get_file_hash(filepath)
+        if state.is_processed(rel, file_hash):
+            logger.info(f"Skipping already processed file: {rel}")
+            return
     report.files_processed.append(str(rel))
 
     # Warn about large files
@@ -356,6 +364,12 @@ def _process_single_file(filepath, source_dir, output_dir, password, dry_run, mo
             encrypted_path = output_dir / "encrypted" / (str(rel) + ".enc")
 
             pii_info = _desensitize_file(filepath, desensitized_path, file_type)
+            
+            # Mark as processed in state
+            if state is not None:
+                file_hash = _get_file_hash(filepath)
+                pii_count = pii_info.get("values_masked", 0) if pii_info else 0
+                state.mark_processed(rel, file_hash, pii_count)
             report.pii_reports[str(rel)] = pii_info
             logger.info(f"{mode_label} Desensitized: {rel} → {desensitized_path}")
 
@@ -384,12 +398,19 @@ def _process_single_file(filepath, source_dir, output_dir, password, dry_run, mo
                 audit.log_error(str(rel), str(exc))
 
 
-def _process_single_file_standalone(filepath, source_dir, output_dir, password, dry_run, compress):
+def _process_single_file_standalone(filepath, source_dir, output_dir, password, dry_run, compress, state=None):
     """Process a single file (parallel mode — no shared state)."""
     rel = filepath.relative_to(source_dir)
     file_type = _classify_file(filepath)
     if file_type is None:
-        return (str(rel), None, None, None, None)
+        return
+    
+    # Incremental migration check
+    if state is not None:
+        file_hash = _get_file_hash(filepath)
+        if state.is_processed(rel, file_hash):
+            logger.info(f"Skipping already processed file: {rel}")
+            return (str(rel), None, None, None, None)
 
     if dry_run:
         preview_info = _preview_file(filepath, file_type)
@@ -400,6 +421,12 @@ def _process_single_file_standalone(filepath, source_dir, output_dir, password, 
             encrypted_path = output_dir / "encrypted" / (str(rel) + ".enc")
 
             pii_info = _desensitize_file(filepath, desensitized_path, file_type)
+            
+            # Mark as processed in state
+            if state is not None:
+                file_hash = _get_file_hash(filepath)
+                pii_count = pii_info.get("values_masked", 0) if pii_info else 0
+                state.mark_processed(rel, file_hash, pii_count)
             encrypt_file(desensitized_path, encrypted_path, password)
 
             if compress:
@@ -643,3 +670,24 @@ def _desensitize_file(filepath: Path, output_path: Path, file_type: str) -> dict
         "values_masked": r.values_masked,
         "rows_processed": r.rows_processed,
     }
+
+def _get_file_hash(path: Path) -> str:
+    """Calculate SHA256 hash of a file for state tracking."""
+    import hashlib
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(8192), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+# Enhanced error handling (v1.2)
+class MigrationError(Exception):
+    """Base exception for migration errors."""
+    pass
+
+class FileProcessingError(MigrationError):
+    """Error processing a specific file."""
+    def __init__(self, filepath: str, original_error: Exception):
+        self.filepath = filepath
+        self.original_error = original_error
+        super().__init__(f"Failed to process {filepath}: {original_error}")

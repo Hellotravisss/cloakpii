@@ -54,3 +54,27 @@ class TestComplianceReportGeneration:
         mock_results = {"fields_masked": ["name", "email"]}
         report = generate_compliance_report(profile, mock_results)
         assert report["access_request_sla_days"] == 30
+
+
+class TestCustomPII:
+    def test_register_custom_pattern(self):
+        from offshore_migrator.pii import register_custom_pii_pattern, CUSTOM_PII_PATTERNS
+        # Clear previous test patterns
+        CUSTOM_PII_PATTERNS.clear()
+        
+        register_custom_pii_pattern("custom_id", r"ID-\d{6}")
+        assert len(CUSTOM_PII_PATTERNS) == 1
+        assert CUSTOM_PII_PATTERNS[0][0] == "custom_id"
+
+
+class TestIncrementalMigration:
+    def test_state_db_creation(self):
+        from offshore_migrator.state import MigrationState
+        from pathlib import Path
+        import tempfile
+        
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "test_state.db"
+            state = MigrationState(db_path)
+            assert db_path.exists()
+            assert state.get_processed_count() == 0

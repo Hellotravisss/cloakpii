@@ -24,6 +24,15 @@ from pathlib import Path
 
 from . import __version__
 from .crypto import encrypt_file, decrypt_file
+from .exceptions import (
+    OffshoreMigratorError,
+    ConfigurationError,
+    ComplianceError,
+    PIIError,
+    CryptoError,
+    IntegrityError,
+    MigrationStateError,
+)
 from .migrate import run_migration
 
 # ---------------------------------------------------------------------------
@@ -136,6 +145,14 @@ def migrate_command(args):
     if log_file:
         _setup_logging(log_file, args.verbose)
 
+    # Initialize migration state for resume functionality
+    state = None
+    if resume:
+        from .state import MigrationState
+        state_db = output / ".migration_state.db"
+        state = MigrationState(state_db)
+        logger.info(f"Resume mode enabled. State database: {state_db}")
+
     report = run_migration(
         source_dir=source,
         output_dir=output,
@@ -151,6 +168,7 @@ def migrate_command(args):
         compress=compress,
         skip_patterns=skip_patterns,
         resume=resume,
+        state=state,
     )
 
     # Write report
@@ -632,10 +650,105 @@ Environment variables:
     _setup_logging(args.log_file, args.verbose)
 
     if hasattr(args, "func"):
-        args.func(args)
+        try:
+            args.func(args)
+        except OffshoreMigratorError as e:
+            logger.error(f"{type(e).__name__}: {e}")
+            sys.exit(1)
+        except KeyboardInterrupt:
+            logger.warning("Operation cancelled by user.")
+            sys.exit(130)
+        except Exception as e:
+            logger.error(f"Unexpected error: {e}")
+            if args.verbose:
+                import traceback
+                traceback.print_exc()
+            sys.exit(1)
     else:
         parser.print_help()
 
 
 if __name__ == "__main__":
     main()
+
+def assessment_command(args):
+    """Generate PIPL Security Assessment declaration template (JSON + Markdown)."""
+    from .compliance import get_profile, generate_security_assessment_template
+    import json
+    from pathlib import Path
+    
+    profile_name = getattr(args, "profile", "pipl").lower()
+    
+    if profile_name != "pipl":
+        print("Error: Security Assessment template is only available for PIPL profile.")
+        return
+    
+    profile = get_profile("pipl")
+    template = generate_security_assessment_template(profile)
+    
+    output_path = getattr(args, "output", None)
+    base_path = Path(output_path) if output_path else None
+    
+    if base_path:
+        base_path.parent.mkdir(parents=True, exist_ok=True)
+        
+        # JSON version
+        json_path = base_path.with_suffix(".json") if base_path.suffix == "" else base_path
+        json_path.write_text(json.dumps(template, indent=2, ensure_ascii=False), encoding="utf-8")
+        print(f"JSON template saved to {json_path}")
+        
+        # Markdown version
+        md_path = json_path.with_suffix(".md")
+        md_content = _format_assessment_template_md(template)
+        md_path.write_text(md_content, encoding="utf-8")
+        print(f"Markdown template saved to {md_path}")
+    else:
+        print(json.dumps(template, indent=2, ensure_ascii=False))
+
+
+def _format_assessment_template_md(template: dict) -> str:
+    """Format Security Assessment template into professional Markdown."""
+    lines = []
+    lines.append("# PIPL Cross-Border Security Assessment Declaration")
+    lines.append(f"**Template Version:** {template.get('template_version', '1.0')}")
+    lines.append(f"**Jurisdiction:** {template.get('jurisdiction', 'PIPL (China)')}")
+    lines.append("")
+    
+    # Data Controller
+    dc = template.get("data_controller", {})
+    lines.append("## Data Controller Information")
+    lines.append(f"- **Company Name:** {dc.get('name', '[YOUR_COMPANY_NAME]')}")
+    lines.append(f"- **Registration Number:** {dc.get('registration_number', '[UNIFIED_SOCIAL_CREDIT_CODE]')}")
+    lines.append(f"- **Contact:** {dc.get('contact', '[DPO_EMAIL]')}")
+    lines.append("")
+    
+    # Data Volume
+    dv = template.get("data_volume", {})
+    lines.append("## Data Volume & Frequency")
+    lines.append(f"- **Estimated Records:** {dv.get('estimated_records', '[e.g. 150000]')}")
+    lines.append(f"- **Frequency:** {dv.get('frequency', '[one-time / recurring]')}")
+    lines.append("")
+    
+    # Recipient
+    rec = template.get("recipient", {})
+    lines.append("## Recipient Information")
+    lines.append(f"- **Country:** {rec.get('country', '[e.g. Singapore]')}")
+    lines.append(f"- **Entity:** {rec.get('entity_name', '[RECIPIENT_COMPANY]')}")
+    lines.append("")
+    
+    # Safeguards
+    sg = template.get("safeguards", {})
+    lines.append("## Safeguards")
+    lines.append("### Technical Measures")
+    for m in sg.get("technical_measures", []):
+        lines.append(f"- {m}")
+    lines.append("")
+    lines.append("### Contractual Measures")
+    for m in sg.get("contractual_measures", []):
+        lines.append(f"- {m}")
+    lines.append("")
+    
+    lines.append("---")
+    lines.append("*This template is for internal preparation. Actual CAC filing may require supplementary documentation.*")
+    
+    return "\n".join(lines)
