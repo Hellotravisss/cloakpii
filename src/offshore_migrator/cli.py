@@ -19,19 +19,13 @@ import json
 import logging
 import os
 import sys
-from datetime import datetime, timezone
+from datetime import datetime
 from pathlib import Path
 
 from . import __version__
 from .crypto import encrypt_file, decrypt_file
 from .exceptions import (
     OffshoreMigratorError,
-    ConfigurationError,
-    ComplianceError,
-    PIIError,
-    CryptoError,
-    IntegrityError,
-    MigrationStateError,
 )
 from .migrate import run_migration
 
@@ -79,7 +73,7 @@ def init_command(args):
 
     save_config(config, config_path)
     logger.info(f"Project initialized → {config_path}")
-    logger.info(f"Edit the config file to customize migration settings.")
+    logger.info("Edit the config file to customize migration settings.")
 
 
 def encrypt_command(args):
@@ -234,7 +228,7 @@ def verify_command(args):
 
     mismatches = verify_manifest(directory, manifest_path)
     if not mismatches:
-        logger.info(f"✓ All files verified. Integrity check passed.")
+        logger.info("✓ All files verified. Integrity check passed.")
     else:
         logger.error(f"✗ {len(mismatches)} integrity issue(s) found:")
         for m in mismatches:
@@ -274,7 +268,7 @@ def status_command(args):
             for v in violations[:5]:
                 print(f"    ⚠ {v}")
         else:
-            print(f"  Status:     ✓ Compliant")
+            print("  Status:     ✓ Compliant")
 
     if report.get("manifest_hash"):
         print(f"\n  Manifest:   {report['manifest_hash'][:32]}...")
@@ -306,17 +300,17 @@ def profiles_command(args):
         if profile.retention_policy_days:
             print(f"    Retention: {profile.retention_policy_days} days")
         if profile.dpo_required:
-            print(f"    DPO Required: Yes (PDPA)")
+            print("    DPO Required: Yes (PDPA)")
         if profile.requires_security_assessment:
-            print(f"    Security Assessment: Required (PIPL)")
+            print("    Security Assessment: Required (PIPL)")
         if profile.access_request_days:
             print(f"    Access Request SLA: {profile.access_request_days} days")
         if profile.data_localization:
-            print(f"    Data localization: Required")
+            print("    Data localization: Required")
         if profile.cross_border_conditions:
             print(f"    Cross-border paths: {len(profile.cross_border_conditions)} options")
         if not profile.cross_border_transfer_allowed:
-            print(f"    Cross-border transfer: NOT allowed (default)")
+            print("    Cross-border transfer: NOT allowed (default)")
         print(f"    Notes: {profile.notes[:100]}...")
 
     print("\n" + "=" * 60)
@@ -386,7 +380,7 @@ def scan_command(args):
     print(f"  Total PII found: {total_pii_count}")
     
     if total_pii_count > 0:
-        print(f"\n  Files with PII:")
+        print("\n  Files with PII:")
         for report in sorted(file_reports, key=lambda x: x['pii_count'], reverse=True):
             if report['pii_count'] > 0:
                 size_str = f"{report['size'] / 1024:.1f} KB"
@@ -475,7 +469,7 @@ def _print_summary(report):
             print(f"    ... and {len(report.compliance_violations) - 5} more")
 
     if report.errors:
-        print(f"\n  ✗ ERRORS:")
+        print("\n  ✗ ERRORS:")
         for e in report.errors:
             print(f"    {e}")
 

@@ -7,7 +7,6 @@ import unittest
 from pathlib import Path
 
 from offshore_migrator.pii import (
-    DesensitizeReport,
     desensitize_csv,
     desensitize_json,
     desensitize_text,
@@ -156,7 +155,7 @@ class TestDesensitizeJSON(unittest.TestCase):
     def test_flat_json_object(self):
         data = {"user_email": "test@test.com", "count": 42}
         self.input_json.write_text(json.dumps(data))
-        report = desensitize_json(self.input_json, self.output_json)
+        desensitize_json(self.input_json, self.output_json)
         masked = json.loads(self.output_json.read_text())
         self.assertNotEqual(masked["user_email"], "test@test.com")
         self.assertEqual(masked["count"], 42)

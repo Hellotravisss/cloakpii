@@ -100,7 +100,7 @@ class TestMigrationReal(unittest.TestCase):
             self.assertTrue(enc_path.exists(), f"Missing: {enc_path}")
 
     def test_real_migration_desensitizes(self):
-        report = run_migration(
+        run_migration(
             source_dir=self.source,
             output_dir=self.output,
             password="testpw123",
@@ -114,7 +114,7 @@ class TestMigrationReal(unittest.TestCase):
         self.assertNotIn("bob@corp.io", content)
 
     def test_encrypted_data_is_decryptable(self):
-        report = run_migration(
+        run_migration(
             source_dir=self.source,
             output_dir=self.output,
             password="mypw",

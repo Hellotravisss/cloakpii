@@ -34,7 +34,6 @@ from .pii import (
     desensitize_xml,
     desensitize_tsv,
     desensitize_sqlite,
-    DesensitizeReport,
 )
 
 logger = logging.getLogger("OffshoreMigrator")

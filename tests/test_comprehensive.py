@@ -1,6 +1,5 @@
 """Comprehensive tests for v0.10+ features: new PII types, formats, compliance, integrity, config, audit."""
 
-import json
 import sqlite3
 import xml.etree.ElementTree as ET
 from pathlib import Path

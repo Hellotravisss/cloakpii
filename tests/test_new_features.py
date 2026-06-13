@@ -1,7 +1,6 @@
 """Tests for Excel and Parquet desensitization + batch/parallel migration."""
 
 import json
-import sys
 from pathlib import Path
 
 import pytest
@@ -103,7 +102,6 @@ class TestDesensitizeExcel:
         from offshore_migrator.pii import desensitize_excel
         p = tmp_path / "empty.xlsx"
         wb = openpyxl.Workbook()
-        ws = wb.active
         wb.save(p)
         wb.close()
 

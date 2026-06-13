@@ -6,7 +6,7 @@ Supports two backends (in order of preference):
 3. Regex only (always available)
 """
 
-from typing import List, Tuple, Optional
+from typing import List, Tuple
 
 # Try Presidio first
 try:

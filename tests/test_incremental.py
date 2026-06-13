@@ -2,7 +2,6 @@
 
 import tempfile
 from pathlib import Path
-import pytest
 from offshore_migrator.state import MigrationState
 from offshore_migrator.migrate import run_migration
 

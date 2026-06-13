@@ -1,6 +1,5 @@
 """Route A (PIPL + PDPA) specific tests."""
 
-import pytest
 from offshore_migrator.compliance import (
     get_profile, 
     generate_compliance_report,

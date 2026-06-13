@@ -22,7 +22,6 @@ Field-name heuristics (for column names):
 """
 
 import csv
-import io
 import json
 import re
 import sqlite3
@@ -318,15 +317,6 @@ def desensitize_text(text: str) -> tuple:
             return _replace
         
         text = pattern.sub(make_replacer(masker_fn), text)
-    
-    # ML-based detection (if available)
-    if False:
-        ml_results = detect_pii_ml(text)
-        for entity_type, detected_text, confidence in ml_results:
-            if confidence > 0.7:  # High confidence threshold
-                # Simple masking for ML detections
-                text = text.replace(detected_text, f"[{entity_type}]")
-                count += 1
 
     # Apply custom patterns
     for name, pattern in CUSTOM_PII_PATTERNS:
@@ -502,18 +492,18 @@ def desensitize_parquet(input_path: Path, output_path: Path) -> DesensitizeRepor
     # Identify string columns and PII field names
     pii_fields = []
     string_cols = []
-    for i, field in enumerate(schema):
-        if pa.types.is_string(field.type) or pa.types.is_large_string(field.type):
+    for i, fld in enumerate(schema):
+        if pa.types.is_string(fld.type) or pa.types.is_large_string(fld.type):
             string_cols.append(i)
-            if _is_pii_field(field.name):
-                pii_fields.append(field.name)
+            if _is_pii_field(fld.name):
+                pii_fields.append(fld.name)
 
     report.fields_masked = list(pii_fields)
     report.rows_processed = table.num_rows
 
     # Process each string column
     new_columns = []
-    for i, field in enumerate(schema):
+    for i, fld in enumerate(schema):
         col = table.column(i)
         if i in string_cols:
             masked_values = []
@@ -523,12 +513,12 @@ def desensitize_parquet(input_path: Path, output_path: Path) -> DesensitizeRepor
                     continue
                 original = str(val)
                 masked = mask_value(original)
-                if masked == original and _is_pii_field(field.name) and original.strip():
+                if masked == original and _is_pii_field(fld.name) and original.strip():
                     masked = mask_generic(original)
                 if masked != original:
                     report.values_masked += 1
                 masked_values.append(masked)
-            new_columns.append(pa.array(masked_values, type=field.type))
+            new_columns.append(pa.array(masked_values, type=fld.type))
         else:
             new_columns.append(col)
 
