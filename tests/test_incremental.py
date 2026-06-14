@@ -2,8 +2,8 @@
 
 import tempfile
 from pathlib import Path
-from piiguard.state import MigrationState
-from piiguard.migrate import run_migration
+from cloakpii.state import MigrationState
+from cloakpii.migrate import run_migration
 
 
 def test_migration_state_basic():

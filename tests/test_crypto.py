@@ -5,7 +5,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from piiguard.crypto import (
+from cloakpii.crypto import (
     CryptoError,
     decrypt_data,
     decrypt_file,

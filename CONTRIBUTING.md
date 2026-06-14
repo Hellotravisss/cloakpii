@@ -1,4 +1,4 @@
-# Contributing to PIIGuard
+# Contributing to CloakPII
 
 Thank you for your interest in contributing!
 
@@ -11,7 +11,7 @@ Thank you for your interest in contributing!
    ```
 3. Run the tool:
    ```bash
-   ./piiguard --help
+   ./cloakpii --help
    ```
 
 ## Code Style

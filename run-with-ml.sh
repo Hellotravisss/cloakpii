@@ -1,6 +1,6 @@
 #!/bin/bash
 # run-with-ml.sh
-# Run PIIGuard with ML PII detection enabled
+# Run CloakPII with ML PII detection enabled
 
 set -e
 
@@ -24,8 +24,8 @@ echo "Activating ML environment..."
 source "$ML_VENV/bin/activate"
 
 # Run the migrator with all passed arguments
-echo "Running: piiguard $*"
-piiguard "$@"
+echo "Running: cloakpii $*"
+cloakpii "$@"
 
 # Deactivate (optional, since script ends)
 deactivate 2>/dev/null || true

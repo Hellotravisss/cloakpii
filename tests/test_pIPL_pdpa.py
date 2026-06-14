@@ -11,7 +11,7 @@ Covers:
 
 import pytest
 
-from piiguard.compliance import (
+from cloakpii.compliance import (
     get_profile,
     validate_migration,
     generate_compliance_report,

@@ -6,7 +6,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from piiguard.pii import (
+from cloakpii.pii import (
     desensitize_csv,
     desensitize_json,
     desensitize_text,

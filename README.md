@@ -1,8 +1,8 @@
-# PIIGuard
+# CloakPII
 
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![CI](https://github.com/Hellotravisss/piiguard/actions/workflows/ci.yml/badge.svg)](https://github.com/Hellotravisss/piiguard/actions/workflows/ci.yml)
+[![CI](https://github.com/Hellotravisss/cloakpii/actions/workflows/ci.yml/badge.svg)](https://github.com/Hellotravisss/cloakpii/actions/workflows/ci.yml)
 
 Secure, compliant data migration toolkit for offshore transfers. Automatically detects and desensitizes PII (Personally Identifiable Information), encrypts data with AES-256-GCM, and generates regulatory documentation for cross-border data protection regimes.
 
@@ -37,8 +37,8 @@ Two things to understand before you rely on it:
 Install from source:
 
 ```bash
-git clone https://github.com/Hellotravisss/piiguard.git
-cd piiguard
+git clone https://github.com/Hellotravisss/cloakpii.git
+cd cloakpii
 pip install -e .
 ```
 
@@ -46,26 +46,26 @@ pip install -e .
 
 ```bash
 # Migrate a directory (desensitize + encrypt)
-piiguard migrate --source data/ --output output/ --password mypassword
+cloakpii migrate --source data/ --output output/ --password mypassword
 
 # Preview what would happen (dry run)
-piiguard migrate --source data/ --dry-run
+cloakpii migrate --source data/ --dry-run
 
 # Encrypt a single file
-piiguard encrypt input.csv output.csv.enc --password mypassword
+cloakpii encrypt input.csv output.csv.enc --password mypassword
 
 # Decrypt a file
-piiguard decrypt output.csv.enc decrypted.csv --password mypassword
+cloakpii decrypt output.csv.enc decrypted.csv --password mypassword
 
 # Restore an entire migration output tree (desensitized plaintext)
-piiguard decrypt-all --input output/encrypted --output restored/ --password mypassword
+cloakpii decrypt-all --input output/encrypted --output restored/ --password mypassword
 ```
 
 ### Using Environment Variables
 
 ```bash
 export ODM_PASSWORD=mypassword
-piiguard migrate --source data/ --output output/
+cloakpii migrate --source data/ --output output/
 ```
 
 ## CLI Reference
@@ -86,7 +86,7 @@ piiguard migrate --source data/ --output output/
 ### migrate
 
 ```bash
-piiguard migrate [OPTIONS]
+cloakpii migrate [OPTIONS]
 
 Options:
   --source DIR            Source directory (default: examples)
@@ -112,22 +112,22 @@ Options:
 
 ```bash
 # Parallel processing with 4 workers
-piiguard migrate --source data/ --output out/ --workers 4
+cloakpii migrate --source data/ --output out/ --workers 4
 
 # GDPR compliance check
-piiguard migrate --source data/ --compliance-profile gdpr
+cloakpii migrate --source data/ --compliance-profile gdpr
 
 # Process only first 10 files
-piiguard migrate --source data/ --batch-size 10
+cloakpii migrate --source data/ --batch-size 10
 
 # Resume interrupted migration
-piiguard migrate --source data/ --output out/ --resume
+cloakpii migrate --source data/ --output out/ --resume
 
 # With audit log and compression
-piiguard migrate --source data/ --audit out/audit.jsonl --compress
+cloakpii migrate --source data/ --audit out/audit.jsonl --compress
 
 # Skip test files
-piiguard migrate --source data/ --skip-patterns "test_*" "*.tmp"
+cloakpii migrate --source data/ --skip-patterns "test_*" "*.tmp"
 ```
 
 ## Configuration File
@@ -156,7 +156,7 @@ field_mappings: {}
 Use it:
 
 ```bash
-piiguard migrate --config migration.yaml
+cloakpii migrate --config migration.yaml
 ```
 
 CLI arguments override config file values.
@@ -195,7 +195,7 @@ Field names containing keywords like `name`, `email`, `phone`, `ssn`, `address`,
 ## Compliance Profiles
 ## Route A Focus (v1.1.0+): China & Singapore Compliance
 
-**PIIGuard** is now optimized for **PIPL (China)** and **PDPA (Singapore)** — two of the strictest data protection regimes for cross-border transfers.
+**CloakPII** is now optimized for **PIPL (China)** and **PDPA (Singapore)** — two of the strictest data protection regimes for cross-border transfers.
 
 ### Quick Start - PIPL (China)
 
@@ -212,7 +212,7 @@ Includes DPO requirements and 30-day access request handling notes.
 
 
 ```bash
-piiguard profiles
+cloakpii profiles
 ```
 
 | Profile | Jurisdiction | Key Requirements |
@@ -227,12 +227,12 @@ piiguard profiles
 
 ```bash
 # Build
-docker build -t piiguard .
+docker build -t cloakpii .
 
 # Run
 docker run --rm -v $(pwd)/data:/data -v $(pwd)/output:/output \
   -e ODM_PASSWORD=mypassword \
-  piiguard migrate --source /data --output /output
+  cloakpii migrate --source /data --output /output
 ```
 
 Or with docker-compose:
@@ -244,7 +244,7 @@ ODM_PASSWORD=mypassword docker-compose run migrator
 ## Architecture
 
 ```
-piiguard/
+cloakpii/
 ├── __init__.py        # Version
 ├── cli.py             # CLI entry point (argparse)
 ├── crypto.py          # AES-256-GCM encryption
@@ -265,8 +265,8 @@ Source files → Classify → Desensitize PII → Encrypt (AES-256-GCM) → Mani
 
 ```bash
 # Clone and install
-git clone https://github.com/Hellotravisss/piiguard.git
-cd piiguard
+git clone https://github.com/Hellotravisss/cloakpii.git
+cd cloakpii
 pip install -e .
 pip install pytest ruff
 
@@ -288,17 +288,17 @@ MIT License. See [LICENSE](LICENSE) for details.
 
 ```bash
 # 1. List enhanced compliance profiles
-piiguard profiles
+cloakpii profiles
 
 # 2. Run migration with compliance report (PIPL)
-ODM_PASSWORD=yourpass piiguard migrate \
+ODM_PASSWORD=yourpass cloakpii migrate \
   --source examples \
   --output output/pipl \
   --compliance-profile pipl \
   --compliance-report
 
 # 3. Same for PDPA (Singapore)
-ODM_PASSWORD=yourpass piiguard migrate \
+ODM_PASSWORD=yourpass cloakpii migrate \
   --source examples \
   --output output/pdpa \
   --compliance-profile pdpa \
@@ -314,16 +314,16 @@ ODM_PASSWORD=yourpass piiguard migrate \
 ### New Commands
 ```bash
 # Scan a directory for PII without migrating
-piiguard scan --source data/ --output scan_report.json
+cloakpii scan --source data/ --output scan_report.json
 
 # Generate PIPL Security Assessment template
-piiguard assessment --output security_assessment.json
+cloakpii assessment --output security_assessment.json
 ```
 
 ### Enhanced migrate command
 ```bash
 # Generate professional compliance report (JSON + Markdown)
-piiguard migrate \
+cloakpii migrate \
   --source examples \
   --compliance-profile pipl \
   --compliance-report
@@ -338,7 +338,7 @@ password: "your-password-here"
 
 ## Incremental Migration & Resume
 
-PIIGuard supports **incremental/resume** migrations using a local SQLite state database.
+CloakPII supports **incremental/resume** migrations using a local SQLite state database.
 
 ### How it works
 
@@ -350,10 +350,10 @@ PIIGuard supports **incremental/resume** migrations using a local SQLite state d
 
 ```bash
 # First run (processes everything)
-piiguard migrate --source data/ --output out/ --resume
+cloakpii migrate --source data/ --output out/ --resume
 
 # Later runs (only processes new or changed files)
-piiguard migrate --source data/ --output out/ --resume
+cloakpii migrate --source data/ --output out/ --resume
 ```
 
 ### State Database Location
@@ -374,8 +374,8 @@ If the state database becomes corrupted (e.g. interrupted write), the migrator w
 For advanced use cases, you can manage the state manually via the Python API:
 
 ```python
-from piiguard.state import MigrationState
-from piiguard.migrate import run_migration
+from cloakpii.state import MigrationState
+from cloakpii.migrate import run_migration
 from pathlib import Path
 
 state = MigrationState(Path("custom_state.db"))

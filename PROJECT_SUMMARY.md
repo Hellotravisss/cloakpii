@@ -1,4 +1,4 @@
-# PIIGuard v1.0.0 - Project Summary
+# CloakPII v1.0.0 - Project Summary
 
 ## Project Overview
 Production-ready Python toolkit for secure, compliant data migration with automatic PII desensitization and AES-256-GCM encryption.
@@ -36,8 +36,8 @@ Production-ready Python toolkit for secure, compliant data migration with automa
 ## Project Structure
 
 ```
-piiguard/
-├── src/piiguard/
+cloakpii/
+├── src/cloakpii/
 │   ├── __init__.py          # Version: 1.0.0
 │   ├── pii.py               # PII detection & masking (11 types)
 │   ├── crypto.py            # AES-256-GCM encryption
@@ -55,8 +55,8 @@ piiguard/
 │   └── test_new_features.py
 ├── examples/                # Sample data files (all 8 formats)
 ├── dist/                    # Built packages
-│   ├── piiguard-1.0.0-py3-none-any.whl
-│   └── piiguard-1.0.0.tar.gz
+│   ├── cloakpii-1.0.0-py3-none-any.whl
+│   └── cloakpii-1.0.0.tar.gz
 ├── README.md                # Full documentation
 ├── CHANGELOG.md             # Version history
 ├── LICENSE                  # MIT License
@@ -71,38 +71,38 @@ piiguard/
 
 ```bash
 # Initialize configuration
-piiguard init --source data/ --output output/
+cloakpii init --source data/ --output output/
 
 # Run migration (desensitize + encrypt)
-piiguard migrate --source data/ --output encrypted/
+cloakpii migrate --source data/ --output encrypted/
 
 # Dry run (preview only)
-piiguard migrate --source data/ --dry-run
+cloakpii migrate --source data/ --dry-run
 
 # Parallel processing with 4 workers
-piiguard migrate --source data/ --workers 4
+cloakpii migrate --source data/ --workers 4
 
 # With compliance validation (GDPR)
-piiguard migrate --source data/ --compliance gdpr
+cloakpii migrate --source data/ --compliance gdpr
 
 # With audit logging
-piiguard migrate --source data/ --audit-log audit.jsonl
+cloakpii migrate --source data/ --audit-log audit.jsonl
 
 # Resume interrupted migration
-piiguard migrate --source data/ --resume
+cloakpii migrate --source data/ --resume
 
 # Verify integrity
-piiguard verify --manifest encrypted/manifest.json
+cloakpii verify --manifest encrypted/manifest.json
 
 # Show migration status
-piiguard status --report encrypted/migration_report.json
+cloakpii status --report encrypted/migration_report.json
 
 # List compliance profiles
-piiguard profiles
+cloakpii profiles
 
 # Encrypt/decrypt individual files
-piiguard encrypt file.csv file.csv.enc
-piiguard decrypt file.csv.enc file.csv
+cloakpii encrypt file.csv file.csv.enc
+cloakpii decrypt file.csv.enc file.csv
 ```
 
 ## Test Coverage
@@ -217,35 +217,35 @@ piiguard decrypt file.csv.enc file.csv
 
 ```
 dist/
-├── piiguard-1.0.0-py3-none-any.whl  (35 KB)
-└── piiguard-1.0.0.tar.gz             (48 KB)
+├── cloakpii-1.0.0-py3-none-any.whl  (35 KB)
+└── cloakpii-1.0.0.tar.gz             (48 KB)
 ```
 
 ## Installation
 
 ```bash
 # From PyPI (when published)
-pip install piiguard
+pip install cloakpii
 
 # From source
-git clone https://github.com/yourusername/piiguard.git
-cd piiguard
+git clone https://github.com/yourusername/cloakpii.git
+cd cloakpii
 pip install -e .
 
 # From wheel
-pip install dist/piiguard-1.0.0-py3-none-any.whl
+pip install dist/cloakpii-1.0.0-py3-none-any.whl
 ```
 
 ## Docker Usage
 
 ```bash
 # Build image
-docker build -t piiguard .
+docker build -t cloakpii .
 
 # Run migration
 docker run -v $(pwd)/data:/data -v $(pwd)/output:/output \
   -e ODM_PASSWORD=mypassword \
-  piiguard migrate --source /data --output /output
+  cloakpii migrate --source /data --output /output
 
 # Using docker-compose
 docker-compose run migrator migrate --source /data --output /output
@@ -284,6 +284,6 @@ docker-compose run migrator migrate --source /data --output /output
 
 ## Conclusion
 
-The PIIGuard v1.0.0 is a **production-ready, enterprise-grade tool** for secure data migration. It combines robust PII detection, military-grade encryption, and regulatory compliance validation in a single, easy-to-use package.
+The CloakPII v1.0.0 is a **production-ready, enterprise-grade tool** for secure data migration. It combines robust PII detection, military-grade encryption, and regulatory compliance validation in a single, easy-to-use package.
 
 **Ready for deployment and PyPI publication.**

@@ -1,4 +1,4 @@
-# PIIGuard Roadmap
+# CloakPII Roadmap
 
 ## v1.1.0 (Route A Focus) ✅
 - Deep PIPL (China) and PDPA (Singapore) support

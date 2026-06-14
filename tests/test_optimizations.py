@@ -4,9 +4,9 @@ import os
 import tempfile
 from pathlib import Path
 
-from piiguard import crypto
-from piiguard.migrate import run_migration, decrypt_tree
-from piiguard.pii import luhn_valid, mask_value, mask_credit_card
+from cloakpii import crypto
+from cloakpii.migrate import run_migration, decrypt_tree
+from cloakpii.pii import luhn_valid, mask_value, mask_credit_card
 
 
 class TestDeriveOnceCompat:

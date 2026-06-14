@@ -1,4 +1,4 @@
-"""Entry point for `python -m piiguard`."""
+"""Entry point for `python -m cloakpii`."""
 
 from .cli import main
 

@@ -22,7 +22,7 @@ deactivate
 
 # Or manually
 source .venv-ml/bin/activate
-piiguard migrate --source data/
+cloakpii migrate --source data/
 deactivate
 ```
 

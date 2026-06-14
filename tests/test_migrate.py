@@ -5,8 +5,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from piiguard.crypto import decrypt_data
-from piiguard.migrate import run_migration
+from cloakpii.crypto import decrypt_data
+from cloakpii.migrate import run_migration
 
 
 class TestMigrationDryRun(unittest.TestCase):

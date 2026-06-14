@@ -1,6 +1,6 @@
 # PIPL Security Assessment Checklist (CAC Filing)
 
-**For Route A v1.1.0 - PIIGuard**
+**For Route A v1.1.0 - CloakPII**
 
 Use this checklist when `requires_security_assessment=True` for PIPL profile.
 
