@@ -31,6 +31,11 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+try:
+    import defusedxml.ElementTree as DET
+except ImportError:
+    DET = None
+
 
 # ---------------------------------------------------------------------------
 # PII patterns
@@ -579,7 +584,14 @@ def desensitize_xml(input_path: Path, output_path: Path, mode="mask", tokenizer=
     input_path = Path(input_path)
     output_path = Path(output_path)
 
-    tree = ET.parse(input_path)
+    if DET is not None:
+        tree = DET.parse(input_path)
+    else:
+        # ponytail: no defusedxml — strip DOCTYPE to block XXE
+        raw = input_path.read_text(encoding="utf-8")
+        safe = re.sub(r"<!DOCTYPE[^>]*\[.*?\]>", "", raw, flags=re.DOTALL)
+        safe = re.sub(r"<!DOCTYPE[^>]*>", "", safe)
+        tree = ET.ElementTree(ET.fromstring(safe))
     root = tree.getroot()
 
     def _mask_element(elem):
@@ -681,71 +693,76 @@ def desensitize_sqlite(input_path: Path, output_path: Path, mode="mask", tokeniz
     shutil.copy(input_path, output_path)
 
     # Connect to the copy and mask in place
-    conn = sqlite3.connect(output_path)
-    cursor = conn.cursor()
+    with sqlite3.connect(output_path) as conn:
+        cursor = conn.cursor()
 
-    # Get all tables
-    cursor.execute("SELECT name FROM sqlite_master WHERE type='table';")
-    tables = [row[0] for row in cursor.fetchall()]
+        # Get all tables
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table';")
+        tables = [row[0] for row in cursor.fetchall()]
 
-    for table_name in tables:
-        # Get column info
-        cursor.execute(f"PRAGMA table_info({table_name});")
-        columns = cursor.fetchall()
-        # columns: (cid, name, type, notnull, dflt_value, pk)
+        for table_name in tables:
+            # Validate table name to prevent SQL injection
+            if not table_name.isidentifier():
+                continue
 
-        # Identify string columns
-        string_cols = []
-        for col in columns:
-            col_name = col[1]
-            col_type = col[2].upper() if col[2] else ""
-            if "TEXT" in col_type or "CHAR" in col_type or "CLOB" in col_type or col_type == "":
-                string_cols.append(col_name)
+            # Get column info
+            cursor.execute(f'PRAGMA table_info("{table_name}");')
+            columns = cursor.fetchall()
+            # columns: (cid, name, type, notnull, dflt_value, pk)
 
-        if not string_cols:
-            continue
+            # Identify string columns
+            string_cols = []
+            for col in columns:
+                col_name = col[1]
+                col_type = col[2].upper() if col[2] else ""
+                if "TEXT" in col_type or "CHAR" in col_type or "CLOB" in col_type or col_type == "":
+                    string_cols.append(col_name)
 
-        # Get all rows
-        cursor.execute(f"SELECT * FROM {table_name};")
-        rows = cursor.fetchall()
-        col_names = [col[1] for col in columns]
+            if not string_cols:
+                continue
 
-        report.rows_processed += len(rows)
+            # Get rowids for correct row identification
+            cursor.execute(f'SELECT rowid, * FROM "{table_name}";')
+            rows_with_rid = cursor.fetchall()
+            col_names = [col[1] for col in columns]
 
-        # Track PII fields
-        for col_name in string_cols:
-            if _is_pii_field(col_name) and col_name not in report.fields_masked:
-                report.fields_masked.append(col_name)
+            report.rows_processed += len(rows_with_rid)
 
-        # Process each row
-        for row_idx, row in enumerate(rows):
-            updates = {}
-            for col_idx, col_name in enumerate(col_names):
-                if col_name not in string_cols:
-                    continue
+            # Track PII fields
+            for col_name in string_cols:
+                if _is_pii_field(col_name) and col_name not in report.fields_masked:
+                    report.fields_masked.append(col_name)
 
-                original = row[col_idx]
-                if original is None:
-                    continue
+            # Process each row
+            for row in rows_with_rid:
+                rowid = row[0]
+                row_data = row[1:]  # skip rowid
+                updates = {}
+                for col_idx, col_name in enumerate(col_names):
+                    if col_name not in string_cols:
+                        continue
 
-                original_str = str(original)
-                new_value, changed = _transform_cell(original_str, col_name, mode, tokenizer)
-                if changed:
-                    report.values_masked += 1
-                    updates[col_name] = new_value
+                    original = row_data[col_idx]
+                    if original is None:
+                        continue
 
-            # Update the row if any changes
-            if updates:
-                set_clause = ", ".join(f"{k} = ?" for k in updates.keys())
-                values = list(updates.values())
-                # Use rowid to identify the row (SQLite internal)
-                cursor.execute(
-                    f"UPDATE {table_name} SET {set_clause} WHERE rowid = ?",
-                    values + [row_idx + 1]
-                )
+                    original_str = str(original)
+                    new_value, changed = _transform_cell(original_str, col_name, mode, tokenizer)
+                    if changed:
+                        report.values_masked += 1
+                        updates[col_name] = new_value
 
-    conn.commit()
-    conn.close()
+                # Update the row if any changes
+                if updates:
+                    safe_cols = [f'"{k}"' for k in updates.keys()]
+                    set_clause = ", ".join(f"{c} = ?" for c in safe_cols)
+                    values = list(updates.values())
+                    cursor.execute(
+                        f'UPDATE "{table_name}" SET {set_clause} WHERE rowid = ?',
+                        values + [rowid]
+                    )
+
+        conn.commit()
 
     return report
 

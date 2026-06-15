@@ -113,6 +113,7 @@ class TestEndToEnd:
 
     def test_mask_mode_unaffected(self):
         # Default mode still masks irreversibly (no tokens)
+        from cloakpii.migrate import decrypt_tree
         with tempfile.TemporaryDirectory() as tmp:
             src = Path(tmp) / "src"
             out = Path(tmp) / "out"
@@ -120,6 +121,9 @@ class TestEndToEnd:
             (src / "u.csv").write_text("email\nwei@corp.cn\n")
             run_migration(source_dir=src, output_dir=out, password="pw",
                           show_progress=False, generate_manifest=False)
-            content = (out / "desensitized" / "u.csv").read_text()
+            # Desensitized plaintext is cleaned up; decrypt encrypted output to verify
+            dec = Path(tmp) / "dec"
+            decrypt_tree(out / "encrypted", dec, "pw")
+            content = (dec / "u.csv").read_text()
             assert TOKEN_PREFIX not in content
             assert "wei@corp.cn" not in content

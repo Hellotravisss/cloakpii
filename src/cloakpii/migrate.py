@@ -18,6 +18,7 @@ import gzip
 import json
 import logging
 import os
+import shutil
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -307,6 +308,14 @@ def run_migration(
 
     report.finished_at = datetime.now(timezone.utc).isoformat()
 
+    # Clean up empty desensitized directory
+    desensitized_dir = output_dir / "desensitized"
+    if desensitized_dir.exists():
+        try:
+            shutil.rmtree(desensitized_dir)
+        except OSError:
+            pass  # non-fatal, directory may already be gone
+
     # Audit log end
     if audit:
         audit.log_migration_end(report.to_dict())
@@ -429,6 +438,10 @@ def _process_single_file(filepath, source_dir, output_dir, enc_key, enc_salt, dr
             report.files_encrypted.append(str(rel))
             logger.info(f"{mode_label} Encrypted: {rel} → {encrypted_path}")
 
+            # Remove plaintext desensitized file to avoid leaking unencrypted data
+            if desensitized_path.exists():
+                desensitized_path.unlink()
+
             if audit:
                 audit.log_file_processed(str(rel), pii_info.get("values_masked", 0))
 
@@ -478,6 +491,10 @@ def _process_single_file_standalone(filepath, source_dir, output_dir, enc_key, e
                         f_out.writelines(f_in)
                 encrypted_path.unlink()
                 encrypted_path = gz_path
+
+            # Remove plaintext desensitized file to avoid leaking unencrypted data
+            if desensitized_path.exists():
+                desensitized_path.unlink()
 
             return (str(rel), file_type, pii_info, str(rel), None)
         except Exception as exc:
@@ -655,32 +672,33 @@ def _preview_sqlite(filepath: Path) -> dict:
     import sqlite3
     from .pii import _is_pii_field, mask_value, mask_generic
     info = {"fields_masked": [], "values_masked": 0, "rows_processed": 0}
-    conn = sqlite3.connect(filepath)
-    cursor = conn.cursor()
-    cursor.execute("SELECT name FROM sqlite_master WHERE type='table';")
-    tables = [row[0] for row in cursor.fetchall()]
-    for table_name in tables:
-        cursor.execute(f"PRAGMA table_info({table_name});")
-        columns = cursor.fetchall()
-        string_cols = [col[1] for col in columns
-                       if "TEXT" in (col[2] or "").upper() or "CHAR" in (col[2] or "").upper() or col[2] == ""]
-        col_names = [col[1] for col in columns]
-        for cn in string_cols:
-            if _is_pii_field(cn) and cn not in info["fields_masked"]:
-                info["fields_masked"].append(cn)
-        cursor.execute(f"SELECT * FROM {table_name};")
-        for row in cursor.fetchall():
-            info["rows_processed"] += 1
-            for idx, cn in enumerate(col_names):
-                if cn not in string_cols or row[idx] is None:
-                    continue
-                original = str(row[idx])
-                masked = mask_value(original)
-                if masked == original and _is_pii_field(cn) and original.strip():
-                    masked = mask_generic(original)
-                if masked != original:
-                    info["values_masked"] += 1
-    conn.close()
+    with sqlite3.connect(filepath) as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table';")
+        tables = [row[0] for row in cursor.fetchall()]
+        for table_name in tables:
+            if not table_name.isidentifier():
+                continue
+            cursor.execute(f'PRAGMA table_info("{table_name}");')
+            columns = cursor.fetchall()
+            string_cols = [col[1] for col in columns
+                           if "TEXT" in (col[2] or "").upper() or "CHAR" in (col[2] or "").upper() or col[2] == ""]
+            col_names = [col[1] for col in columns]
+            for cn in string_cols:
+                if _is_pii_field(cn) and cn not in info["fields_masked"]:
+                    info["fields_masked"].append(cn)
+            cursor.execute(f'SELECT * FROM "{table_name}";')
+            for row in cursor.fetchall():
+                info["rows_processed"] += 1
+                for idx, cn in enumerate(col_names):
+                    if cn not in string_cols or row[idx] is None:
+                        continue
+                    original = str(row[idx])
+                    masked = mask_value(original)
+                    if masked == original and _is_pii_field(cn) and original.strip():
+                        masked = mask_generic(original)
+                    if masked != original:
+                        info["values_masked"] += 1
     return info
 
 
