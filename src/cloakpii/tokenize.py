@@ -69,8 +69,8 @@ class Tokenizer:
         try:
             ct = base64.b32decode(body + pad)
             return self._aead.decrypt(self._nonce, ct, None).decode("utf-8")
-        except Exception as exc:
-            raise CryptoError(f"Detokenization failed (wrong password or corrupted token): {exc}")
+        except Exception:
+            raise CryptoError("Detokenization failed: wrong password or corrupted token")
 
     def detokenize_text(self, text: str) -> str:
         """Replace every token found inside a string with its original value."""

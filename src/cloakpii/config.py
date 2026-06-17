@@ -8,6 +8,7 @@ which can be overridden by CLI arguments.
 from __future__ import annotations
 
 import argparse
+import os
 from dataclasses import dataclass, field, asdict
 from pathlib import Path
 
@@ -101,8 +102,24 @@ def save_config(config: MigrationConfig, path: Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
 
     data = asdict(config)
+    # Never serialize secrets to disk. The password/key_file should come from
+    # the environment, --key-file, or the interactive prompt at run time.
+    for secret in ("password", "key_file"):
+        if data.get(secret):
+            import logging
+            logging.getLogger("CloakPII").warning(
+                f"Not writing '{secret}' to config file {path} — provide it via "
+                "CLOAKPII_PASSWORD, --key-file, or the interactive prompt instead."
+            )
+        data.pop(secret, None)
+
     with open(path, "w", encoding="utf-8") as f:
         yaml.dump(data, f, default_flow_style=False, sort_keys=False)
+    # Restrict permissions — config may reference sensitive paths/settings.
+    try:
+        os.chmod(path, 0o600)
+    except OSError:
+        pass  # best effort (e.g. Windows / unusual filesystems)
 
 
 def default_config() -> MigrationConfig:

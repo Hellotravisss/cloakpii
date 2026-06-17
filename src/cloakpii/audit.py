@@ -8,6 +8,7 @@ all migration activities, errors, and compliance events.
 from __future__ import annotations
 
 import json
+import os
 import threading
 from dataclasses import dataclass, field, asdict
 from datetime import datetime, timezone
@@ -42,6 +43,14 @@ class AuditLog:
         """
         self.path = Path(path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
+        # The audit trail records file paths and PII counts — create it with
+        # owner-only permissions rather than leaving it world-readable.
+        if not self.path.exists():
+            self.path.touch()
+            try:
+                os.chmod(self.path, 0o600)
+            except OSError:
+                pass  # best effort (e.g. Windows)
         self._lock = threading.Lock()
         self._count = 0
 

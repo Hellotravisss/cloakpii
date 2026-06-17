@@ -33,12 +33,17 @@ class LightweightMLPIIDetector:
                 # Try to load a small English model
                 self.nlp = spacy.load("en_core_web_sm")
             except OSError:
-                # Model not downloaded, try to download
-                try:
-                    spacy.cli.download("en_core_web_sm")
-                    self.nlp = spacy.load("en_core_web_sm")
-                except Exception:
-                    self.nlp = None
+                # Do NOT auto-download: fetching a spaCy model at runtime pulls
+                # and installs an executable package over the network without the
+                # user's consent. Fall back to regex and tell the user how to
+                # enable the model explicitly.
+                import logging
+                logging.getLogger("CloakPII").warning(
+                    "spaCy model 'en_core_web_sm' is not installed; ML PII "
+                    "detection is disabled. Install it explicitly with: "
+                    "python -m spacy download en_core_web_sm"
+                )
+                self.nlp = None
 
     def detect_pii(self, text: str) -> List[Tuple[str, str, float]]:
         """

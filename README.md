@@ -13,8 +13,11 @@ pip install cloakpii
 ```
 
 ```bash
+# Provide the password via the environment, not the command line
+# (--password would leak into `ps` and your shell history)
+export CLOAKPII_PASSWORD=...
 # Desensitize + encrypt a folder, and emit a PIPL compliance report
-cloakpii migrate --source ./data --output ./safe --password "$PW" \
+cloakpii migrate --source ./data --output ./safe \
   --compliance-profile pipl --compliance-report
 ```
 
@@ -118,7 +121,7 @@ cloakpii decrypt-all --input output/encrypted --output restored/ --password mypa
 ### Using Environment Variables
 
 ```bash
-export ODM_PASSWORD=mypassword
+export CLOAKPII_PASSWORD=mypassword
 cloakpii migrate --source data/ --output output/
 ```
 
@@ -148,7 +151,7 @@ Options:
   --output DIR            Output directory (default: output)
   --mode MODE             mask (irreversible, default) | tokenize (reversible)
   --target NAME           Target jurisdiction (default: singapore)
-  --password PW           Encryption password (or use ODM_PASSWORD env var)
+  --password PW           Encryption password (or use CLOAKPII_PASSWORD env var)
   --config FILE           Path to YAML config file
   --dry-run               Preview without modifying files
   --workers N             Number of parallel workers (default: 1)
@@ -287,14 +290,14 @@ docker build -t cloakpii .
 
 # Run
 docker run --rm -v $(pwd)/data:/data -v $(pwd)/output:/output \
-  -e ODM_PASSWORD=mypassword \
+  -e CLOAKPII_PASSWORD=mypassword \
   cloakpii migrate --source /data --output /output
 ```
 
 Or with docker-compose:
 
 ```bash
-ODM_PASSWORD=mypassword docker-compose run migrator
+CLOAKPII_PASSWORD=mypassword docker-compose run migrator
 ```
 
 ## Architecture
@@ -347,14 +350,14 @@ MIT License. See [LICENSE](LICENSE) for details.
 cloakpii profiles
 
 # 2. Run migration with compliance report (PIPL)
-ODM_PASSWORD=yourpass cloakpii migrate \
+CLOAKPII_PASSWORD=yourpass cloakpii migrate \
   --source examples \
   --output output/pipl \
   --compliance-profile pipl \
   --compliance-report
 
 # 3. Same for PDPA (Singapore)
-ODM_PASSWORD=yourpass cloakpii migrate \
+CLOAKPII_PASSWORD=yourpass cloakpii migrate \
   --source examples \
   --output output/pdpa \
   --compliance-profile pdpa \

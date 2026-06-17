@@ -428,11 +428,16 @@ def _resolve_password(args, config=None) -> str:
     2. CLI --key-file argument
     3. Config file password
     4. Config file key_file
-    5. ODM_PASSWORD environment variable
+    5. CLOAKPII_PASSWORD environment variable (legacy: ODM_PASSWORD)
     6. Interactive prompt (getpass)
     """
     # CLI password takes highest priority
     if hasattr(args, 'password') and args.password:
+        logger.warning(
+            "Passing --password on the command line exposes it in the process "
+            "list (ps) and your shell history. Prefer the CLOAKPII_PASSWORD "
+            "environment variable, --key-file, or the interactive prompt."
+        )
         return args.password
     
     # CLI key file
@@ -455,10 +460,17 @@ def _resolve_password(args, config=None) -> str:
             sys.exit(1)
         return key_path.read_text(encoding='utf-8').strip()
     
-    # Environment variable
-    env_pw = os.environ.get("ODM_PASSWORD")
+    # Environment variable (CLOAKPII_PASSWORD preferred; ODM_PASSWORD is the
+    # legacy name kept for backward compatibility).
+    env_pw = os.environ.get("CLOAKPII_PASSWORD")
     if env_pw:
         return env_pw
+    legacy_pw = os.environ.get("ODM_PASSWORD")
+    if legacy_pw:
+        logger.warning(
+            "ODM_PASSWORD is deprecated; rename it to CLOAKPII_PASSWORD."
+        )
+        return legacy_pw
     
     # Interactive prompt
     return getpass.getpass("Encryption password: ")
@@ -579,14 +591,16 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  cloakpii migrate --source data/ --output out/ --password mypw
+  export CLOAKPII_PASSWORD=...   # preferred over --password (not in ps/history)
+  cloakpii migrate --source data/ --output out/
   cloakpii migrate --source data/ --dry-run --compliance gdpr
   cloakpii verify --directory out/encrypted --manifest out/manifest.json
   cloakpii status --report out/migration_report.json
   cloakpii profiles
 
 Environment variables:
-  ODM_PASSWORD    Encryption password (avoids interactive prompt)
+  CLOAKPII_PASSWORD    Encryption password (avoids interactive prompt)
+                       (legacy alias: ODM_PASSWORD, deprecated)
         """,
     )
     parser.add_argument("--version", action="version", version=f"v{__version__}")

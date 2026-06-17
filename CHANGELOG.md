@@ -5,6 +5,39 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.0] - 2026-06-16
+
+### Security
+- **SQL injection** hardening in the SQLite handlers: table/column names are now
+  validated (`isidentifier()`) and double-quoted instead of interpolated raw.
+- **XXE**: XML parsing now uses `defusedxml` (new hard dependency) with a
+  DOCTYPE-stripping fallback, preventing external-entity and entity-expansion
+  attacks.
+- **rowid correctness**: SQLite UPDATEs now key off the real `rowid` instead of a
+  sequential index, which produced wrong updates on tables with deleted rows.
+- **No secrets on disk**: `save_config` no longer serializes `password` / `key_file`
+  to the YAML config; written configs are created with `0o600` permissions.
+- **Restrictive permissions** (`0o600`) on the audit log and on decrypted output
+  files, which previously inherited a world-readable umask.
+- **No silent network install**: the optional spaCy backend no longer auto-downloads
+  and installs a model at runtime; it falls back to regex and prints install
+  instructions instead.
+- **Decompression-bomb guard**: `decrypt-all` caps `.enc.gz` expansion (2 GiB) to
+  avoid OOM on crafted inputs.
+- **ReDoS warning**: custom PII regex patterns with nested quantifiers are flagged
+  at registration time.
+- Decryption errors no longer echo the underlying exception detail.
+
+### Changed
+- The encryption password environment variable is now `CLOAKPII_PASSWORD`
+  (`ODM_PASSWORD` still works but is deprecated and warns).
+- Passing `--password` on the command line now prints a warning recommending the
+  environment variable, `--key-file`, or the interactive prompt.
+
+### Credits
+- Security fixes for SQL injection, XXE, and rowid contributed by Davy
+  (@thedavidweng) in #1.
+
 ## [1.3.0] - 2026-06-13
 
 ### Added

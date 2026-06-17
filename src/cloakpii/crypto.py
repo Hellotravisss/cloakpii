@@ -52,8 +52,10 @@ def decrypt_data_with_key(blob: bytes, key: bytes) -> bytes:
     ciphertext = blob[SALT_LEN + NONCE_LEN :]
     try:
         return AESGCM(key).decrypt(nonce, ciphertext, None)
-    except Exception as exc:
-        raise CryptoError(f"Decryption failed (wrong password or corrupted data): {exc}")
+    except Exception:
+        # Deliberately do not echo the underlying exception — it can leak
+        # internal details and the cause is always the same to the caller.
+        raise CryptoError("Decryption failed: wrong password or corrupted data")
 
 
 def read_salt(blob: bytes) -> bytes:

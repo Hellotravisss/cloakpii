@@ -725,6 +725,22 @@ def _get_file_hash(path: Path) -> str:
     return h.hexdigest()
 
 
+# Upper bound on a single decompressed .enc.gz payload (2 GiB). A legitimate
+# blob is gzipped ciphertext (≈ its compressed size); a much larger expansion
+# means a crafted decompression bomb, so we refuse it instead of OOM-ing.
+_MAX_DECOMPRESSED_BYTES = 2 * 1024 ** 3
+
+
+def _gunzip_bounded(data: bytes, max_size: int = _MAX_DECOMPRESSED_BYTES) -> bytes:
+    """Decompress gzip bytes, refusing payloads that expand beyond ``max_size``."""
+    import zlib
+    decomp = zlib.decompressobj(16 + zlib.MAX_WBITS)  # 16 → expect gzip header
+    out = decomp.decompress(data, max_size + 1)
+    if len(out) > max_size or decomp.unconsumed_tail:
+        raise ValueError("Refusing to decompress: payload exceeds size limit")
+    return out + decomp.flush()
+
+
 def decrypt_tree(input_dir: Path, output_dir: Path, password: str) -> dict:
     """Decrypt a whole migration output tree back to plaintext.
 
@@ -753,7 +769,12 @@ def decrypt_tree(input_dir: Path, output_dir: Path, password: str) -> dict:
             continue
         name = enc_path.name
         if name.endswith(".enc.gz"):
-            blob = gzip.decompress(enc_path.read_bytes())
+            try:
+                blob = _gunzip_bounded(enc_path.read_bytes())
+            except (ValueError, OSError) as exc:
+                errors.append(f"{enc_path.relative_to(input_dir)}: {exc}")
+                logger.error(f"[DECRYPT] Failed to decompress: {enc_path} ({exc})")
+                continue
             rel = enc_path.relative_to(input_dir).with_name(name[: -len(".enc.gz")])
         elif name.endswith(".enc"):
             blob = enc_path.read_bytes()
@@ -774,6 +795,11 @@ def decrypt_tree(input_dir: Path, output_dir: Path, password: str) -> dict:
         dest = output_dir / rel
         dest.parent.mkdir(parents=True, exist_ok=True)
         dest.write_bytes(plaintext)
+        # Recovered plaintext is the sensitive original — keep it owner-only.
+        try:
+            os.chmod(dest, 0o600)
+        except OSError:
+            pass  # best effort (e.g. Windows)
         decrypted.append(str(rel))
         logger.info(f"[DECRYPT] {enc_path.relative_to(input_dir)} → {dest}")
 

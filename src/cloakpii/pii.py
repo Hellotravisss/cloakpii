@@ -769,14 +769,32 @@ def desensitize_sqlite(input_path: Path, output_path: Path, mode="mask", tokeniz
 # Custom PII pattern support (v1.2)
 CUSTOM_PII_PATTERNS: list[tuple[str, str]] = []
 
+# Classic catastrophic-backtracking shapes: a quantified group whose body is
+# itself quantified, e.g. (a+)+, (a*)*, (\d+)*. These can blow up to
+# exponential time on adversarial input (ReDoS).
+_REDOS_RE = re.compile(r"\([^)]*[+*][^)]*\)\s*[+*]")
+
+
 def register_custom_pii_pattern(name: str, pattern: str):
-    """Register a custom PII detection pattern."""
+    """Register a custom PII detection pattern.
+
+    Patterns come from the user's own config and run against every scanned
+    value, so a poorly-written one can cause catastrophic backtracking (ReDoS).
+    We warn on the obvious nested-quantifier shape but still register it — the
+    user owns the trade-off.
+    """
     import re
     try:
         re.compile(pattern)
-        CUSTOM_PII_PATTERNS.append((name, pattern))
     except re.error:
         raise ValueError(f"Invalid regex pattern for {name}: {pattern}")
+    if _REDOS_RE.search(pattern):
+        import logging
+        logging.getLogger("CloakPII").warning(
+            f"Custom PII pattern '{name}' contains a nested quantifier and may "
+            f"be vulnerable to catastrophic backtracking (ReDoS): {pattern}"
+        )
+    CUSTOM_PII_PATTERNS.append((name, pattern))
 
 def _apply_custom_patterns(text: str) -> list[tuple[str, str]]:
     """Apply registered custom PII patterns to text."""
