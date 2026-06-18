@@ -158,3 +158,25 @@ class TestMigrationReal(unittest.TestCase):
         )
         self.assertEqual(len(report.files_processed), 0)
         self.assertEqual(len(report.errors), 0)
+
+
+class TestSourceScopeEscape(unittest.TestCase):
+    """A symlink pointing outside --source must not pull external files in."""
+
+    def test_symlink_outside_source_is_skipped(self):
+        tmp = Path(tempfile.mkdtemp())
+        src = tmp / "src"; src.mkdir()
+        out = tmp / "out"
+        (src / "users.csv").write_text("email\nwei@corp.cn\n")
+        external = tmp / "secret.csv"
+        external.write_text("email\nboss@corp.cn\n")
+        (src / "escape.csv").symlink_to(external)
+
+        report = run_migration(
+            source_dir=src, output_dir=out, password="pw",
+            show_progress=False, generate_manifest=False,
+        )
+        processed = {Path(p).name for p in report.files_processed}
+        self.assertIn("users.csv", processed)
+        self.assertNotIn("escape.csv", processed)  # scope-escape blocked
+        self.assertFalse((out / "encrypted" / "escape.csv.enc").exists())

@@ -216,8 +216,17 @@ def run_migration(
 
     # Collect processable files
     files = []
+    source_root = source_dir.resolve()
     for f in sorted(source_dir.rglob("*")):
         if not f.is_file():
+            continue
+        # Stay within the declared source tree: a symlink pointing outside it
+        # would otherwise pull external files into the migration (and ship them
+        # encrypted). Skip anything that resolves outside --source.
+        try:
+            f.resolve().relative_to(source_root)
+        except (ValueError, OSError):
+            logger.warning(f"Skipping {f} — resolves outside the source directory")
             continue
         if _classify_file(f) is None:
             continue

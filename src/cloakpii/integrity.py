@@ -3,6 +3,12 @@ File integrity verification via SHA-256 manifests.
 
 Generates and verifies manifests for directories to ensure
 data integrity during migration.
+
+Note: the manifest is an UNKEYED SHA-256 digest, so it detects accidental
+corruption / truncation, not malicious tampering — an attacker who alters a
+file can recompute its hash. Tamper protection for the encrypted output comes
+from the AES-256-GCM authentication tag (decryption fails if the ciphertext is
+modified), not from this manifest.
 """
 
 from __future__ import annotations
