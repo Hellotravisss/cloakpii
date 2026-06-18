@@ -723,91 +723,119 @@ def desensitize_tsv(input_path: Path, output_path: Path, mode="mask", tokenizer=
 # ---------------------------------------------------------------------------
 
 def desensitize_sqlite(input_path: Path, output_path: Path, mode="mask", tokenizer=None) -> DesensitizeReport:
-    """Copy SQLite database and transform PII in all string columns."""
+    """Copy a SQLite database and transform PII in every non-BLOB column.
+
+    Masking runs on a temporary copy that is promoted to ``output_path`` only
+    after it completes — so a mid-masking failure never leaves an unmasked (or
+    partially-masked) database behind. Rows are identified by ``rowid`` where
+    available, or by primary key for ``WITHOUT ROWID`` tables.
+    """
+    import os
+    import tempfile
+
     report = DesensitizeReport()
     input_path = Path(input_path)
     output_path = Path(output_path)
 
-    # Copy the database first
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copy(input_path, output_path)
+    fd, tmp_name = tempfile.mkstemp(dir=output_path.parent, suffix=".db.tmp")
+    os.close(fd)
+    tmp_path = Path(tmp_name)
 
-    # Connect to the copy and mask in place
-    with sqlite3.connect(output_path) as conn:
-        cursor = conn.cursor()
+    try:
+        shutil.copy(input_path, tmp_path)
 
-        # Get all tables
-        cursor.execute("SELECT name FROM sqlite_master WHERE type='table';")
-        tables = [row[0] for row in cursor.fetchall()]
+        with sqlite3.connect(tmp_path) as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT name FROM sqlite_master WHERE type='table';")
+            tables = [row[0] for row in cursor.fetchall()]
 
-        for table_name in tables:
-            # Validate table name to prevent SQL injection
-            if not table_name.isidentifier():
-                continue
-
-            # Get column info
-            cursor.execute(f'PRAGMA table_info("{table_name}");')
-            columns = cursor.fetchall()
-            # columns: (cid, name, type, notnull, dflt_value, pk)
-
-            # Mask every column except BLOBs. SQLite is dynamically typed, so a
-            # masked string can be stored back into an INTEGER/REAL column —
-            # this catches PII (phones, IDs, account numbers) held as numbers,
-            # which a TEXT-only filter would silently leak.
-            maskable_cols = []
-            for col in columns:
-                col_name = col[1]
-                col_type = col[2].upper() if col[2] else ""
-                if "BLOB" in col_type:
+            for table_name in tables:
+                # Validate table name to prevent SQL injection
+                if not table_name.isidentifier():
                     continue
-                maskable_cols.append(col_name)
 
-            if not maskable_cols:
-                continue
+                cursor.execute(f'PRAGMA table_info("{table_name}");')
+                columns = cursor.fetchall()
+                # columns: (cid, name, type, notnull, dflt_value, pk)
+                col_names = [col[1] for col in columns]
 
-            # Get rowids for correct row identification
-            cursor.execute(f'SELECT rowid, * FROM "{table_name}";')
-            rows_with_rid = cursor.fetchall()
-            col_names = [col[1] for col in columns]
+                # Mask every column except BLOBs. SQLite is dynamically typed, so
+                # a masked string can be stored back into an INTEGER/REAL column —
+                # this catches PII (phones, IDs, account numbers) held as numbers,
+                # which a TEXT-only filter would silently leak.
+                maskable_cols = [col[1] for col in columns
+                                 if "BLOB" not in (col[2] or "").upper()]
+                if not maskable_cols:
+                    continue
 
-            report.rows_processed += len(rows_with_rid)
+                # Row identification: rowid if the table has one, else primary
+                # key (WITHOUT ROWID tables have no rowid column).
+                try:
+                    cursor.execute(f'SELECT rowid FROM "{table_name}" LIMIT 1').fetchall()
+                    has_rowid = True
+                except sqlite3.OperationalError:
+                    has_rowid = False
+                pk_cols = [col[1] for col in columns if col[5]]  # col[5] = pk position
 
-            # Track PII fields
-            for col_name in maskable_cols:
-                if _is_pii_field(col_name) and col_name not in report.fields_masked:
-                    report.fields_masked.append(col_name)
+                if has_rowid:
+                    cursor.execute(f'SELECT rowid, * FROM "{table_name}";')
+                    fetched = [(r[0], r[1:]) for r in cursor.fetchall()]
+                elif pk_cols:
+                    cursor.execute(f'SELECT * FROM "{table_name}";')
+                    fetched = [(None, r) for r in cursor.fetchall()]
+                else:
+                    import logging
+                    logging.getLogger("CloakPII").warning(
+                        f"Table '{table_name}' has neither rowid nor a primary "
+                        "key; skipping (cannot identify rows to mask safely)."
+                    )
+                    continue
 
-            # Process each row
-            for row in rows_with_rid:
-                rowid = row[0]
-                row_data = row[1:]  # skip rowid
-                updates = {}
-                for col_idx, col_name in enumerate(col_names):
-                    if col_name not in maskable_cols:
+                report.rows_processed += len(fetched)
+                for col_name in maskable_cols:
+                    if _is_pii_field(col_name) and col_name not in report.fields_masked:
+                        report.fields_masked.append(col_name)
+
+                for rowid, row_data in fetched:
+                    updates = {}
+                    for col_idx, col_name in enumerate(col_names):
+                        if col_name not in maskable_cols:
+                            continue
+                        original = row_data[col_idx]
+                        # None and BLOB (bytes) values are not scalar PII text.
+                        if original is None or isinstance(original, bytes):
+                            continue
+                        new_value, changed = _transform_cell(str(original), col_name, mode, tokenizer)
+                        if changed:
+                            report.values_masked += 1
+                            updates[col_name] = new_value
+
+                    if not updates:
                         continue
 
-                    original = row_data[col_idx]
-                    # None and BLOB (bytes) values are not scalar PII text.
-                    if original is None or isinstance(original, bytes):
-                        continue
-
-                    original_str = str(original)
-                    new_value, changed = _transform_cell(original_str, col_name, mode, tokenizer)
-                    if changed:
-                        report.values_masked += 1
-                        updates[col_name] = new_value
-
-                # Update the row if any changes
-                if updates:
-                    safe_cols = [f'"{k}"' for k in updates.keys()]
-                    set_clause = ", ".join(f"{c} = ?" for c in safe_cols)
+                    set_clause = ", ".join(f'"{k}" = ?' for k in updates)
                     values = list(updates.values())
+                    if has_rowid:
+                        where_sql, where_params = "rowid = ?", [rowid]
+                    else:
+                        where_sql = " AND ".join(f'"{pk}" = ?' for pk in pk_cols)
+                        where_params = [row_data[col_names.index(pk)] for pk in pk_cols]
                     cursor.execute(
-                        f'UPDATE "{table_name}" SET {set_clause} WHERE rowid = ?',
-                        values + [rowid]
+                        f'UPDATE "{table_name}" SET {set_clause} WHERE {where_sql}',
+                        values + where_params,
                     )
 
-        conn.commit()
+            conn.commit()
+
+        os.replace(tmp_path, output_path)  # atomic promote, only on success
+    except BaseException:
+        # Never leave an unmasked / partially-masked database at output_path.
+        try:
+            tmp_path.unlink()
+        except OSError:
+            pass
+        raise
 
     return report
 

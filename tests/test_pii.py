@@ -211,3 +211,43 @@ class TestNumericPIINotLeaked(unittest.TestCase):
         self.assertNotEqual(str(t.column("phone").to_pylist()[0]), "13812345678")
         self.assertEqual(t.column("age").to_pylist(), [30])  # untouched
         self.assertEqual(str(t.schema.field("age").type), "int64")
+
+
+class TestSqliteRobustness(unittest.TestCase):
+    """Regression: WITHOUT ROWID tables must mask, and a masking failure must
+    never leave an unmasked database at the output path."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+
+    def test_without_rowid_table_is_masked_not_leaked(self):
+        import sqlite3
+        from cloakpii.pii import desensitize_sqlite
+        src, out = self.tmp / "in.db", self.tmp / "out.db"
+        c = sqlite3.connect(src)
+        c.execute("CREATE TABLE u(email TEXT PRIMARY KEY, note TEXT) WITHOUT ROWID")
+        c.execute("INSERT INTO u VALUES('alice@example.com', 'ssn 123-45-6789')")
+        c.commit(); c.close()
+        desensitize_sqlite(src, out)  # must not raise
+        c = sqlite3.connect(out)
+        email, note = c.execute("SELECT email, note FROM u").fetchone()
+        c.close()
+        self.assertNotIn("alice@example.com", email)
+        self.assertNotIn("123-45-6789", note)
+
+    def test_masking_failure_leaves_no_output_or_residue(self):
+        import glob
+        import sqlite3
+        from unittest import mock
+        from cloakpii import pii
+        src, out = self.tmp / "in.db", self.tmp / "out.db"
+        c = sqlite3.connect(src)
+        c.execute("CREATE TABLE u(email TEXT)")
+        c.execute("INSERT INTO u VALUES('alice@example.com')")
+        c.commit(); c.close()
+        with mock.patch.object(pii, "_transform_cell", side_effect=RuntimeError("boom")):
+            with self.assertRaises(RuntimeError):
+                pii.desensitize_sqlite(src, out)
+        # No output database and no temp residue must remain.
+        self.assertFalse(out.exists(), "unmasked DB left at output path")
+        self.assertEqual(glob.glob(str(self.tmp / "*.tmp")), [])
