@@ -159,3 +159,55 @@ class TestDesensitizeJSON(unittest.TestCase):
         masked = json.loads(self.output_json.read_text())
         self.assertNotEqual(masked["user_email"], "test@test.com")
         self.assertEqual(masked["count"], 42)
+
+
+class TestNumericPIINotLeaked(unittest.TestCase):
+    """Regression: PII stored as numbers must be masked, not passed through.
+
+    A TEXT/string-only filter silently leaked phones/IDs/accounts held in
+    numeric columns or JSON numbers.
+    """
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+
+    def test_json_numeric_phone_masked_bool_and_nonpii_preserved(self):
+        src, out = self.tmp / "in.json", self.tmp / "out.json"
+        src.write_text(json.dumps(
+            {"name": "Wei", "phone": 13812345678, "flag": True, "count": 42}
+        ))
+        desensitize_json(src, out)
+        d = json.loads(out.read_text())
+        self.assertNotEqual(str(d["phone"]), "13812345678")  # masked
+        self.assertIs(d["flag"], True)                       # bool untouched
+        self.assertEqual(d["count"], 42)                     # non-PII int kept
+
+    def test_sqlite_integer_phone_masked_age_preserved(self):
+        import sqlite3
+        from cloakpii.pii import desensitize_sqlite
+        src, out = self.tmp / "in.db", self.tmp / "out.db"
+        c = sqlite3.connect(src)
+        c.execute("CREATE TABLE u(name TEXT, phone INTEGER, age INTEGER)")
+        c.execute("INSERT INTO u VALUES('Wei', 13812345678, 30)")
+        c.commit(); c.close()
+        desensitize_sqlite(src, out)
+        c = sqlite3.connect(out)
+        row = c.execute("SELECT phone, age FROM u").fetchone()
+        c.close()
+        self.assertNotEqual(str(row[0]), "13812345678")  # masked
+        self.assertEqual(row[1], 30)                      # non-PII int kept
+
+    def test_parquet_int_phone_masked_nonpii_column_stays_numeric(self):
+        import pyarrow as pa
+        import pyarrow.parquet as pq
+        from cloakpii.pii import desensitize_parquet
+        src, out = self.tmp / "in.parquet", self.tmp / "out.parquet"
+        pq.write_table(pa.table({
+            "phone": pa.array([13812345678], type=pa.int64()),
+            "age": pa.array([30], type=pa.int64()),
+        }), src)
+        desensitize_parquet(src, out)
+        t = pq.read_table(out)
+        self.assertNotEqual(str(t.column("phone").to_pylist()[0]), "13812345678")
+        self.assertEqual(t.column("age").to_pylist(), [30])  # untouched
+        self.assertEqual(str(t.schema.field("age").type), "int64")

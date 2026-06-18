@@ -664,17 +664,19 @@ def _preview_sqlite(filepath: Path) -> dict:
                 continue
             cursor.execute(f'PRAGMA table_info("{table_name}");')
             columns = cursor.fetchall()
-            string_cols = [col[1] for col in columns
-                           if "TEXT" in (col[2] or "").upper() or "CHAR" in (col[2] or "").upper() or col[2] == ""]
+            # Scan every column except BLOBs — numeric columns can hold PII too
+            # (mirrors desensitize_sqlite, which masks them).
+            maskable_cols = [col[1] for col in columns
+                             if "BLOB" not in (col[2] or "").upper()]
             col_names = [col[1] for col in columns]
-            for cn in string_cols:
+            for cn in maskable_cols:
                 if _is_pii_field(cn) and cn not in info["fields_masked"]:
                     info["fields_masked"].append(cn)
             cursor.execute(f'SELECT * FROM "{table_name}";')
             for row in cursor.fetchall():
                 info["rows_processed"] += 1
                 for idx, cn in enumerate(col_names):
-                    if cn not in string_cols or row[idx] is None:
+                    if cn not in maskable_cols or row[idx] is None or isinstance(row[idx], bytes):
                         continue
                     original = str(row[idx])
                     masked = mask_value(original)

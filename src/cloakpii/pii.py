@@ -447,6 +447,20 @@ def _desensitize_json_node(node: Any, report: DesensitizeReport, parent_key: str
             if parent_key and parent_key not in report.fields_masked:
                 report.fields_masked.append(parent_key)
         return new_value
+    elif isinstance(node, bool):
+        # bool is a subclass of int — never treat True/False as PII.
+        return node
+    elif isinstance(node, (int, float)):
+        # Numeric PII (phones, IDs, account numbers stored as numbers) would
+        # otherwise pass through unmasked. Mask on the string form; if it
+        # changes, emit the masked string (the value is no longer a number).
+        new_value, changed = _transform_cell(str(node), parent_key, mode, tokenizer)
+        if changed:
+            report.values_masked += 1
+            if parent_key and parent_key not in report.fields_masked:
+                report.fields_masked.append(parent_key)
+            return new_value
+        return node
     else:
         return node
 
@@ -547,7 +561,10 @@ def desensitize_parquet(input_path: Path, output_path: Path, mode="mask", tokeni
     report.fields_masked = list(pii_fields)
     report.rows_processed = table.num_rows
 
-    # Process each string column
+    # Process each column. String columns are masked in place; non-string
+    # columns (ints/floats that may hold phones, IDs, account numbers) are
+    # scanned too — if any value is PII the whole column is emitted as strings,
+    # since a masked value (e.g. "138-****-**78") is no longer numeric.
     new_columns = []
     for i, fld in enumerate(schema):
         col = table.column(i)
@@ -563,8 +580,31 @@ def desensitize_parquet(input_path: Path, output_path: Path, mode="mask", tokeni
                     report.values_masked += 1
                 masked_values.append(new_value)
             new_columns.append(pa.array(masked_values, type=fld.type))
-        else:
+        elif pa.types.is_nested(fld.type) or pa.types.is_binary(fld.type):
+            # Structs/lists/maps/binary aren't scalar PII text — leave as-is.
             new_columns.append(col)
+        else:
+            masked_values = []
+            col_changed = False
+            for val in col.to_pylist():
+                if val is None:
+                    masked_values.append(None)
+                    continue
+                new_value, changed = _transform_cell(str(val), fld.name, mode, tokenizer)
+                if changed:
+                    report.values_masked += 1
+                    col_changed = True
+                    masked_values.append(new_value)
+                else:
+                    masked_values.append(val)
+            if col_changed:
+                if fld.name not in report.fields_masked:
+                    report.fields_masked.append(fld.name)
+                # Whole column becomes string; stringify the untouched values too.
+                masked_values = [None if v is None else str(v) for v in masked_values]
+                new_columns.append(pa.array(masked_values, type=pa.string()))
+            else:
+                new_columns.append(col)
 
     new_table = pa.table(dict(zip([f.name for f in schema], new_columns)))
 
@@ -710,15 +750,19 @@ def desensitize_sqlite(input_path: Path, output_path: Path, mode="mask", tokeniz
             columns = cursor.fetchall()
             # columns: (cid, name, type, notnull, dflt_value, pk)
 
-            # Identify string columns
-            string_cols = []
+            # Mask every column except BLOBs. SQLite is dynamically typed, so a
+            # masked string can be stored back into an INTEGER/REAL column —
+            # this catches PII (phones, IDs, account numbers) held as numbers,
+            # which a TEXT-only filter would silently leak.
+            maskable_cols = []
             for col in columns:
                 col_name = col[1]
                 col_type = col[2].upper() if col[2] else ""
-                if "TEXT" in col_type or "CHAR" in col_type or "CLOB" in col_type or col_type == "":
-                    string_cols.append(col_name)
+                if "BLOB" in col_type:
+                    continue
+                maskable_cols.append(col_name)
 
-            if not string_cols:
+            if not maskable_cols:
                 continue
 
             # Get rowids for correct row identification
@@ -729,7 +773,7 @@ def desensitize_sqlite(input_path: Path, output_path: Path, mode="mask", tokeniz
             report.rows_processed += len(rows_with_rid)
 
             # Track PII fields
-            for col_name in string_cols:
+            for col_name in maskable_cols:
                 if _is_pii_field(col_name) and col_name not in report.fields_masked:
                     report.fields_masked.append(col_name)
 
@@ -739,11 +783,12 @@ def desensitize_sqlite(input_path: Path, output_path: Path, mode="mask", tokeniz
                 row_data = row[1:]  # skip rowid
                 updates = {}
                 for col_idx, col_name in enumerate(col_names):
-                    if col_name not in string_cols:
+                    if col_name not in maskable_cols:
                         continue
 
                     original = row_data[col_idx]
-                    if original is None:
+                    # None and BLOB (bytes) values are not scalar PII text.
+                    if original is None or isinstance(original, bytes):
                         continue
 
                     original_str = str(original)
