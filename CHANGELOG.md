@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.1] - 2026-06-17
+
+### Security
+- **Numeric PII was silently leaked.** Desensitization only processed
+  string-typed values, so PII stored as a number — phones, national IDs, or
+  account numbers held in JSON numbers, Parquet int/float columns, or SQLite
+  `INTEGER`/`REAL` columns — passed through completely unmasked while the run
+  still reported success. CSV/Excel/TSV/text were unaffected (they read values
+  as strings), which made the gap easy to miss. JSON, Parquet, and SQLite now
+  mask numeric PII as well; non-PII numbers and booleans are preserved, and
+  Parquet columns stay numeric unless they actually contain PII. Anyone who
+  processed Parquet/SQLite/JSON with v1.4.0 or earlier should re-run.
+
 ## [1.4.0] - 2026-06-16
 
 ### Security
