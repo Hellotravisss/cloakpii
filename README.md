@@ -66,6 +66,7 @@ Two things to understand before you rely on it:
 
 - **Masking (the default mode) is irreversible.** Masked values (`alice@x.com` → `a***@x******.com`) cannot be recovered — even after you decrypt. If you need the data to stay **usable** (joins, dedup) and recoverable, use `--mode tokenize` instead (see above).
 - **Compliance output is documentation, not legal sign-off.** The `profiles`, `assessment`, and `--compliance-report` features generate checklists and declaration templates to *help* you prepare a filing. They do not constitute legal advice or a guarantee of compliance — have counsel review actual cross-border filings.
+- **Detection is not exhaustive.** The built-in detector is regex + column-name keywords. By design it does **not** catch: phone numbers written as bare digit runs with no separators (e.g. `13812345678` — masked only if the column name signals PII), old 15-digit Chinese IDs, IPv6 addresses, free-text personal names, or PII glued directly to surrounding letters. Enable the optional ML backend (see [ML_SETUP.md](ML_SETUP.md)) for names and broader coverage, and **spot-check the output on a sample before trusting a new dataset.**
 
 ## Features
 
