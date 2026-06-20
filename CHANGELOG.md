@@ -5,6 +5,26 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.2] - 2026-06-19
+
+### Security
+- **SQLite: unmasked database left on disk when masking failed.** `desensitize_sqlite`
+  copied the source DB to the output path and masked it in place; on any mid-masking
+  error the transaction rolled back, leaving a verbatim cleartext copy behind. It also
+  crashed on `WITHOUT ROWID` tables (`no such column: rowid`), which triggered exactly
+  that path. Masking now runs on a temp copy promoted only on success (no residue on
+  failure), and rows are identified by `rowid` or primary key as appropriate.
+- **Source symlink scope escape.** A symlink under `--source` pointing outside the tree
+  was followed, pulling external files into the migration. Paths resolving outside
+  `--source` are now skipped (in-tree symlinks still work).
+- **Path traversal in `verify`.** `verify_manifest` joined untrusted manifest keys onto
+  the target directory, so an absolute/`..` key could read files outside it (a
+  file/hash oracle). Such entries are now rejected as `INVALID PATH`.
+
+### Documentation
+- README now discloses detection-coverage limits (bare-digit phones, 15-digit Chinese
+  IDs, IPv6, free-text names) and points to the ML backend + spot-checking.
+
 ## [1.4.1] - 2026-06-17
 
 ### Security
