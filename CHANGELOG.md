@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.3] - 2026-06-19
+
+### Documentation
+- **No code changes** — identical to 1.4.2 functionally. This release exists so
+  the PyPI project page picks up the rewritten README.
+- README: pain-point intro, comparison vs Presidio / DIY / gpg, SEO keywords,
+  consistent env-var password usage, corrected examples.
+- New documentation site (mkdocs-material): https://hellotravisss.github.io/cloakpii/
+
 ## [1.4.2] - 2026-06-19
 
 ### Security
