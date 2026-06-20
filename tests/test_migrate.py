@@ -165,7 +165,8 @@ class TestSourceScopeEscape(unittest.TestCase):
 
     def test_symlink_outside_source_is_skipped(self):
         tmp = Path(tempfile.mkdtemp())
-        src = tmp / "src"; src.mkdir()
+        src = tmp / "src"
+        src.mkdir()
         out = tmp / "out"
         (src / "users.csv").write_text("email\nwei@corp.cn\n")
         external = tmp / "secret.csv"

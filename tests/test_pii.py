@@ -189,7 +189,8 @@ class TestNumericPIINotLeaked(unittest.TestCase):
         c = sqlite3.connect(src)
         c.execute("CREATE TABLE u(name TEXT, phone INTEGER, age INTEGER)")
         c.execute("INSERT INTO u VALUES('Wei', 13812345678, 30)")
-        c.commit(); c.close()
+        c.commit()
+        c.close()
         desensitize_sqlite(src, out)
         c = sqlite3.connect(out)
         row = c.execute("SELECT phone, age FROM u").fetchone()
@@ -227,7 +228,8 @@ class TestSqliteRobustness(unittest.TestCase):
         c = sqlite3.connect(src)
         c.execute("CREATE TABLE u(email TEXT PRIMARY KEY, note TEXT) WITHOUT ROWID")
         c.execute("INSERT INTO u VALUES('alice@example.com', 'ssn 123-45-6789')")
-        c.commit(); c.close()
+        c.commit()
+        c.close()
         desensitize_sqlite(src, out)  # must not raise
         c = sqlite3.connect(out)
         email, note = c.execute("SELECT email, note FROM u").fetchone()
@@ -244,7 +246,8 @@ class TestSqliteRobustness(unittest.TestCase):
         c = sqlite3.connect(src)
         c.execute("CREATE TABLE u(email TEXT)")
         c.execute("INSERT INTO u VALUES('alice@example.com')")
-        c.commit(); c.close()
+        c.commit()
+        c.close()
         with mock.patch.object(pii, "_transform_cell", side_effect=RuntimeError("boom")):
             with self.assertRaises(RuntimeError):
                 pii.desensitize_sqlite(src, out)

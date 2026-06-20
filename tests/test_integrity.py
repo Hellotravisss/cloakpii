@@ -11,7 +11,8 @@ from cloakpii.integrity import verify_manifest, write_manifest
 class TestManifestRoundTrip(unittest.TestCase):
     def test_matching_manifest_has_no_mismatches(self):
         tmp = Path(tempfile.mkdtemp())
-        d = tmp / "enc"; d.mkdir()
+        d = tmp / "enc"
+        d.mkdir()
         (d / "a.enc").write_bytes(b"hello")
         man = tmp / "m.json"
         write_manifest(d, man)
@@ -24,7 +25,8 @@ class TestManifestPathTraversal(unittest.TestCase):
 
     def test_absolute_and_parent_keys_are_rejected_not_read(self):
         tmp = Path(tempfile.mkdtemp())
-        d = tmp / "enc"; d.mkdir()
+        d = tmp / "enc"
+        d.mkdir()
         (d / "real.enc").write_bytes(b"x")
         secret = tmp / "outside_secret.txt"
         secret.write_text("TOPSECRET")
