@@ -87,9 +87,18 @@ def verify_manifest(directory: Path, manifest_path: Path) -> list[str]:
 
     expected = data.get("files", {})
     mismatches = []
+    dir_root = directory.resolve()
 
     for rel_path, expected_hash in expected.items():
         filepath = directory / rel_path
+        # A manifest is untrusted input: an absolute or "../" key would make us
+        # read files outside the directory under verification. Refuse those
+        # instead of following them.
+        try:
+            filepath.resolve().relative_to(dir_root)
+        except ValueError:
+            mismatches.append(f"INVALID PATH (outside directory): {rel_path}")
+            continue
         if not filepath.exists():
             mismatches.append(f"MISSING: {rel_path}")
             continue
