@@ -1,0 +1,71 @@
+site_name: CloakPII
+site_description: >-
+  PII desensitization, AES-256-GCM encryption, and PIPL / PDPA / GDPR
+  compliance reporting for cross-border data transfers — in one command.
+site_url: https://hellotravisss.github.io/cloakpii/
+repo_url: https://github.com/Hellotravisss/cloakpii
+repo_name: Hellotravisss/cloakpii
+copyright: MIT Licensed
+
+theme:
+  name: material
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: teal
+      accent: teal
+      toggle:
+        icon: material/weather-night
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: teal
+      accent: teal
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to light mode
+  features:
+    - navigation.sections
+    - navigation.top
+    - navigation.instant
+    - content.code.copy
+    - content.code.annotate
+    - search.suggest
+    - search.highlight
+
+nav:
+  - Home: index.md
+  - Installation: installation.md
+  - Mask vs tokenize: modes.md
+  - CLI reference: cli.md
+  - File formats & PII types: formats.md
+  - Compliance (PIPL/PDPA/GDPR): compliance.md
+  - Configuration: configuration.md
+  - Security: security.md
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true
+
+plugins:
+  - search
+
+# Older internal research notes kept in the repo but not published on the site.
+exclude_docs: |
+  COMPLIANCE_GUIDE.md
+  RESEARCH_REPORT.md
+
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/Hellotravisss/cloakpii
+    - icon: fontawesome/brands/python
+      link: https://pypi.org/project/cloakpii/

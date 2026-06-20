@@ -64,3 +64,6 @@ output/
 config/*.json
 *.log
 /tmp/
+
+# mkdocs build output
+site/
