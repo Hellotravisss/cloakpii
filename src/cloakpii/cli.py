@@ -77,9 +77,17 @@ def init_command(args):
 
 
 def encrypt_command(args):
-    """Encrypt a file."""
+    """Encrypt a file (streams large files for constant memory)."""
+    import os as _os
     password = _resolve_password(args)
-    encrypt_file(Path(args.input), Path(args.output), password)
+    src, dst = Path(args.input), Path(args.output)
+    from .migrate import STREAM_THRESHOLD
+    if src.exists() and src.stat().st_size >= STREAM_THRESHOLD:
+        from .crypto import derive_key, encrypt_file_stream_with_key, SALT_LEN
+        salt = _os.urandom(SALT_LEN)
+        encrypt_file_stream_with_key(src, dst, derive_key(password, salt), salt)
+    else:
+        encrypt_file(src, dst, password)
     logger.info(f"Encrypted: {args.input} → {args.output}")
 
 

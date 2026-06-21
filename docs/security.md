@@ -11,6 +11,12 @@ CloakPII is a security tool, so it's built and audited like one.
 
 Wire format: `[16-byte salt][12-byte nonce][ciphertext + 16-byte GCM tag]`.
 
+**Large files** (≥ 50 MB) use an additive **chunked streaming format** (1 MiB
+chunks, constant memory) identified by an 8-byte magic header. Each chunk has a
+unique nonce and binds its order + finality as GCM associated data, so
+reordering and truncation are detected, not just tampering. Legacy ciphertext
+stays byte-compatible — decryption auto-detects which format it is reading.
+
 !!! note
     The PBKDF2 iteration count is not stored in the wire format, so it can't be
     changed without breaking existing ciphertext.

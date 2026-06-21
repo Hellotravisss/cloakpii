@@ -93,11 +93,16 @@ def encrypt_file(input_path: Path, output_path: Path, password: str) -> None:
 
 
 def decrypt_file(input_path: Path, output_path: Path, password: str) -> None:
-    """Decrypt a file produced by encrypt_file."""
+    """Decrypt a file produced by encrypt_file. Auto-detects the streaming format."""
     input_path = Path(input_path)
     output_path = Path(output_path)
     if not input_path.exists():
         raise FileNotFoundError(f"Encrypted file not found: {input_path}")
+    if is_stream_file(input_path):
+        salt = read_stream_salt(input_path)
+        key = derive_key(password, salt)
+        decrypt_file_stream_with_key(input_path, output_path, key)
+        return
     blob = input_path.read_bytes()
     plaintext = decrypt_data(blob, password)
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -116,11 +121,125 @@ def encrypt_file_with_key(input_path: Path, output_path: Path, key: bytes, salt:
 
 
 def decrypt_file_with_key(input_path: Path, output_path: Path, key: bytes) -> None:
-    """Decrypt a file with a pre-derived key."""
+    """Decrypt a file with a pre-derived key. Auto-detects the streaming format."""
     input_path = Path(input_path)
     output_path = Path(output_path)
     if not input_path.exists():
         raise FileNotFoundError(f"Encrypted file not found: {input_path}")
+    if is_stream_file(input_path):
+        decrypt_file_stream_with_key(input_path, output_path, key)
+        return
     plaintext = decrypt_data_with_key(input_path.read_bytes(), key)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_bytes(plaintext)
+
+
+# ---------------------------------------------------------------------------
+# Streaming (chunked) format — for files too large to hold in memory.
+#
+# This is an ADDITIVE format, distinct from the legacy single-shot blob above.
+# It is identified by an 8-byte magic header, so legacy ciphertext stays
+# byte-compatible and decryption auto-detects which format it is reading.
+#
+# Layout:
+#   [8 magic][16 salt][8 base_nonce] then repeated chunks:
+#     [1 type][4 ct_len(BE)][ct_len bytes ciphertext+tag]
+#   type 0x00 = data chunk, 0x01 = final terminator (empty plaintext).
+#   per-chunk nonce = base_nonce(8) || counter(4 BE)   (unique per chunk)
+#   AAD = type(1) || counter(4 BE)   — binds chunk order + finality, so
+#   reordering, truncation, and tampering are all detected by the GCM tag.
+# ---------------------------------------------------------------------------
+
+STREAM_MAGIC = b"CPIISTM1"
+STREAM_BASE_NONCE_LEN = 8
+STREAM_CHUNK_SIZE = 1024 * 1024  # 1 MiB plaintext per chunk
+_STREAM_HEADER_LEN = len(STREAM_MAGIC) + SALT_LEN + STREAM_BASE_NONCE_LEN
+
+
+def is_stream_file(path: Path) -> bool:
+    """Return True if the file begins with the streaming-format magic header."""
+    try:
+        with open(path, "rb") as f:
+            return f.read(len(STREAM_MAGIC)) == STREAM_MAGIC
+    except OSError:
+        return False
+
+
+def read_stream_salt(path: Path) -> bytes:
+    """Read the salt from a streaming-format file's header."""
+    with open(path, "rb") as f:
+        header = f.read(_STREAM_HEADER_LEN)
+    if len(header) < _STREAM_HEADER_LEN or header[:len(STREAM_MAGIC)] != STREAM_MAGIC:
+        raise CryptoError("Not a CloakPII streaming file")
+    return header[len(STREAM_MAGIC):len(STREAM_MAGIC) + SALT_LEN]
+
+
+def encrypt_file_stream_with_key(input_path: Path, output_path: Path, key: bytes,
+                                 salt: bytes, chunk_size: int = STREAM_CHUNK_SIZE) -> None:
+    """Encrypt a file in fixed-size chunks (constant memory) with a pre-derived key."""
+    input_path = Path(input_path)
+    output_path = Path(output_path)
+    if not input_path.exists():
+        raise FileNotFoundError(f"Input file not found: {input_path}")
+    aead = AESGCM(key)
+    base_nonce = os.urandom(STREAM_BASE_NONCE_LEN)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    def _nonce(counter: int) -> bytes:
+        return base_nonce + counter.to_bytes(4, "big")
+
+    with open(input_path, "rb") as fin, open(output_path, "wb") as fout:
+        fout.write(STREAM_MAGIC + salt + base_nonce)
+        counter = 0
+        while True:
+            chunk = fin.read(chunk_size)
+            if not chunk:
+                break
+            aad = b"\x00" + counter.to_bytes(4, "big")
+            ct = aead.encrypt(_nonce(counter), chunk, aad)
+            fout.write(b"\x00" + len(ct).to_bytes(4, "big") + ct)
+            counter += 1
+        # Final terminator chunk (empty plaintext, final flag in type + AAD).
+        aad = b"\x01" + counter.to_bytes(4, "big")
+        ct = aead.encrypt(_nonce(counter), b"", aad)
+        fout.write(b"\x01" + len(ct).to_bytes(4, "big") + ct)
+
+
+def decrypt_file_stream_with_key(input_path: Path, output_path: Path, key: bytes) -> None:
+    """Decrypt a streaming-format file with a pre-derived key (constant memory)."""
+    input_path = Path(input_path)
+    output_path = Path(output_path)
+    aead = AESGCM(key)
+
+    with open(input_path, "rb") as fin:
+        header = fin.read(_STREAM_HEADER_LEN)
+        if len(header) < _STREAM_HEADER_LEN or header[:len(STREAM_MAGIC)] != STREAM_MAGIC:
+            raise CryptoError("Not a CloakPII streaming file")
+        base_nonce = header[len(STREAM_MAGIC) + SALT_LEN:]
+
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        counter = 0
+        saw_final = False
+        with open(output_path, "wb") as fout:
+            while True:
+                head = fin.read(5)
+                if len(head) < 5:
+                    raise CryptoError("Truncated stream — missing final chunk")
+                ctype = head[0]
+                ct_len = int.from_bytes(head[1:5], "big")
+                ct = fin.read(ct_len)
+                if len(ct) != ct_len:
+                    raise CryptoError("Truncated stream — short chunk")
+                nonce = base_nonce + counter.to_bytes(4, "big")
+                aad = bytes([ctype]) + counter.to_bytes(4, "big")
+                try:
+                    plain = aead.decrypt(nonce, ct, aad)
+                except Exception:
+                    raise CryptoError("Decryption failed: wrong password or corrupted data")
+                if ctype == 0x01:
+                    saw_final = True
+                    break
+                fout.write(plain)
+                counter += 1
+        if not saw_final:
+            raise CryptoError("Truncated stream — missing final chunk")

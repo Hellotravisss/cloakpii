@@ -24,7 +24,13 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
-from .crypto import encrypt_file_with_key, derive_key, CryptoError, SALT_LEN
+from .crypto import (
+    encrypt_file_with_key,
+    encrypt_file_stream_with_key,
+    derive_key,
+    CryptoError,
+    SALT_LEN,
+)
 from .pii import (
     desensitize_csv,
     desensitize_json,
@@ -40,6 +46,20 @@ logger = logging.getLogger("CloakPII")
 
 # Threshold for large file warning (100 MB)
 LARGE_FILE_THRESHOLD = 100 * 1024 * 1024
+
+# Files at/above this size are encrypted with the chunked streaming format
+# (constant memory) instead of the single-shot in-memory blob.
+STREAM_THRESHOLD = 50 * 1024 * 1024
+
+
+def _encrypt_output(src_path: Path, dst_path: Path, enc_key, enc_salt, compress: bool) -> None:
+    """Encrypt a desensitized file, streaming it if it is large (and not gzipped)."""
+    # Compression buffers the whole blob anyway, so streaming only helps the
+    # uncompressed path.
+    if not compress and src_path.stat().st_size >= STREAM_THRESHOLD:
+        encrypt_file_stream_with_key(src_path, dst_path, enc_key, enc_salt)
+    else:
+        encrypt_file_with_key(src_path, dst_path, enc_key, enc_salt)
 
 
 @dataclass
@@ -455,7 +475,7 @@ def _process_single_file(filepath, source_dir, output_dir, enc_key, enc_salt, dr
             report.pii_reports[str(rel)] = pii_info
             logger.info(f"{mode_label} Desensitized: {rel} → {desensitized_path}")
 
-            encrypt_file_with_key(desensitized_path, encrypted_path, enc_key, enc_salt)
+            _encrypt_output(desensitized_path, encrypted_path, enc_key, enc_salt, compress)
 
             # Optional compression
             if compress:
@@ -509,7 +529,7 @@ def _process_single_file_standalone(filepath, source_dir, output_dir, enc_key, e
                 file_hash = _get_file_hash(filepath)
                 pii_count = pii_info.get("values_masked", 0) if pii_info else 0
                 state.mark_processed(rel, file_hash, pii_count)
-            encrypt_file_with_key(desensitized_path, encrypted_path, enc_key, enc_salt)
+            _encrypt_output(desensitized_path, encrypted_path, enc_key, enc_salt, compress)
 
             if compress:
                 gz_path = Path(str(encrypted_path) + ".gz")
@@ -887,7 +907,10 @@ def decrypt_tree(input_dir: Path, output_dir: Path, password: str) -> dict:
     one salt across all files), so PBKDF2 runs once rather than per file.
     Returns a summary dict with decrypted/failed counts.
     """
-    from .crypto import decrypt_data_with_key, read_salt, derive_key, CryptoError
+    from .crypto import (
+        decrypt_data_with_key, read_salt, derive_key, CryptoError,
+        is_stream_file, read_stream_salt, decrypt_file_stream_with_key,
+    )
 
     input_dir = Path(input_dir)
     output_dir = Path(output_dir)
@@ -898,10 +921,38 @@ def decrypt_tree(input_dir: Path, output_dir: Path, password: str) -> dict:
     decrypted: list[str] = []
     errors: list[str] = []
 
+    def _key_for(salt: bytes) -> bytes:
+        if salt not in key_cache:
+            key_cache[salt] = derive_key(password, salt)
+        return key_cache[salt]
+
+    def _restrict(path: Path) -> None:
+        # Recovered plaintext is the sensitive original — keep it owner-only.
+        try:
+            os.chmod(path, 0o600)
+        except OSError:
+            pass  # best effort (e.g. Windows)
+
     for enc_path in sorted(input_dir.rglob("*")):
         if not enc_path.is_file():
             continue
         name = enc_path.name
+
+        # Streaming-format files decrypt chunk-by-chunk straight to disk.
+        if name.endswith(".enc") and is_stream_file(enc_path):
+            rel = enc_path.relative_to(input_dir).with_name(name[: -len(".enc")])
+            dest = output_dir / rel
+            try:
+                decrypt_file_stream_with_key(enc_path, dest, _key_for(read_stream_salt(enc_path)))
+            except CryptoError as exc:
+                errors.append(f"{enc_path.relative_to(input_dir)}: {exc}")
+                logger.error(f"[DECRYPT] Failed: {enc_path} ({exc})")
+                continue
+            _restrict(dest)
+            decrypted.append(str(rel))
+            logger.info(f"[DECRYPT] {enc_path.relative_to(input_dir)} → {dest}")
+            continue
+
         if name.endswith(".enc.gz"):
             try:
                 blob = _gunzip_bounded(enc_path.read_bytes())
@@ -917,10 +968,7 @@ def decrypt_tree(input_dir: Path, output_dir: Path, password: str) -> dict:
             continue
 
         try:
-            salt = read_salt(blob)
-            if salt not in key_cache:
-                key_cache[salt] = derive_key(password, salt)
-            plaintext = decrypt_data_with_key(blob, key_cache[salt])
+            plaintext = decrypt_data_with_key(blob, _key_for(read_salt(blob)))
         except CryptoError as exc:
             errors.append(f"{enc_path.relative_to(input_dir)}: {exc}")
             logger.error(f"[DECRYPT] Failed: {enc_path} ({exc})")
@@ -929,11 +977,7 @@ def decrypt_tree(input_dir: Path, output_dir: Path, password: str) -> dict:
         dest = output_dir / rel
         dest.parent.mkdir(parents=True, exist_ok=True)
         dest.write_bytes(plaintext)
-        # Recovered plaintext is the sensitive original — keep it owner-only.
-        try:
-            os.chmod(dest, 0o600)
-        except OSError:
-            pass  # best effort (e.g. Windows)
+        _restrict(dest)
         decrypted.append(str(rel))
         logger.info(f"[DECRYPT] {enc_path.relative_to(input_dir)} → {dest}")
 
