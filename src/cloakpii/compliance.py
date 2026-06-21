@@ -259,20 +259,47 @@ def validate_migration(pii_report: dict, profile: ComplianceProfile) -> list[str
     return violations
 
 
+# PIPL: a CAC security assessment is required above this many personal records.
+PIPL_ASSESSMENT_RECORD_THRESHOLD = 100_000
+
+
+def _summarize_migration(migration_results: dict) -> dict:
+    """Derive real data-processing statistics from a MigrationReport dict."""
+    pii_reports = migration_results.get("pii_reports", {}) or {}
+    records = 0
+    categories: set[str] = set()
+    for info in pii_reports.values():
+        if isinstance(info, dict):
+            records += info.get("rows_processed", 0) or 0
+            categories.update(info.get("fields_masked", []) or [])
+    return {
+        "files_processed": len(migration_results.get("files_processed", []) or []),
+        "files_encrypted": len(migration_results.get("files_encrypted", []) or []),
+        "records_processed": records,
+        "pii_values_masked": migration_results.get("total_pii_masked", 0) or 0,
+        "data_categories": sorted(categories),
+        "bytes_processed": migration_results.get("total_bytes_processed", 0) or 0,
+        "errors": len(migration_results.get("errors", []) or []),
+    }
+
+
 def generate_compliance_report(
     profile: ComplianceProfile, migration_results: dict
 ) -> dict:
     """Generate production-grade compliance report for Route A (PIPL/PDPA focus).
 
     Includes:
+    - A real data-processing summary (files, records, PII categories, volume)
     - PIPL: Security assessment recommendation + cross-border conditions checklist
     - PDPA: DPO requirement flag + 30-day access request note
     """
+    summary = _summarize_migration(migration_results)
     report = {
         "profile": profile.name,
         "full_name": profile.full_name,
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "compliance_status": "pending_review",
+        "data_summary": summary,
         "violations": validate_migration(migration_results, profile),
         "recommendations": [],
         "sensitive_fields_handled": profile.sensitive_pii_fields,
@@ -284,9 +311,21 @@ def generate_compliance_report(
         report["security_assessment_required"] = profile.requires_security_assessment
         report["data_localization"] = profile.data_localization
         report["cross_border_paths"] = profile.cross_border_conditions
-        report["recommendations"].append(
-            "PIPL: Prepare CAC security assessment filing if volume > 100k records or sensitive data."
-        )
+        # Compute the threshold from the actual record count, not a static note.
+        large_volume = summary["records_processed"] > PIPL_ASSESSMENT_RECORD_THRESHOLD
+        report["large_volume_transfer"] = large_volume
+        if large_volume:
+            report["recommendations"].append(
+                f"PIPL: {summary['records_processed']:,} records exceed the "
+                f"{PIPL_ASSESSMENT_RECORD_THRESHOLD:,}-record threshold — a CAC "
+                "security assessment filing is required before transfer."
+            )
+        else:
+            report["recommendations"].append(
+                f"PIPL: {summary['records_processed']:,} records are under the "
+                f"{PIPL_ASSESSMENT_RECORD_THRESHOLD:,}-record threshold; a CAC "
+                "security assessment may still be required for sensitive data."
+            )
         report["recommendations"].append(
             "Generate declaration template for recipient country safeguards."
         )

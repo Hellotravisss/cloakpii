@@ -548,7 +548,24 @@ def _format_compliance_report_md(report: dict) -> str:
     lines.append(f"**Generated:** {report.get('timestamp', '')}")
     lines.append(f"**Status:** `{report.get('compliance_status', 'pending_review')}`")
     lines.append("")
-    
+
+    # Data processing summary (real statistics from the migration)
+    summary = report.get("data_summary")
+    if summary:
+        lines.append("## 📊 Data Processing Summary")
+        lines.append(f"- **Files processed:** {summary.get('files_processed', 0)} "
+                     f"({summary.get('files_encrypted', 0)} encrypted)")
+        lines.append(f"- **Records processed:** {summary.get('records_processed', 0):,}")
+        lines.append(f"- **PII values masked:** {summary.get('pii_values_masked', 0):,}")
+        lines.append(f"- **Data volume:** {summary.get('bytes_processed', 0):,} bytes")
+        cats = summary.get("data_categories") or []
+        if cats:
+            lines.append(f"- **Personal-data categories handled:** {', '.join(cats)}")
+        if report.get("large_volume_transfer") is not None:
+            flag = "Yes" if report["large_volume_transfer"] else "No"
+            lines.append(f"- **Large-volume transfer (>100k records):** {flag}")
+        lines.append("")
+
     # Violations
     if report.get("violations"):
         lines.append("## ⚠️ Violations")

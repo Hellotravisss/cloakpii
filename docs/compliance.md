@@ -25,8 +25,15 @@ cloakpii migrate --source ./data --output ./safe \
   --compliance-profile pipl --compliance-report
 ```
 
-The report includes a security-assessment checklist, cross-border transfer legal
-paths (PIPL), and DPO / access-request notes (PDPA).
+The report includes:
+
+- a **data-processing summary** computed from the run — files, records, PII
+  values masked, data volume, and the personal-data categories handled;
+- for **PIPL**, a real **volume-threshold check**: if the run exceeds 100,000
+  records, the report flags that a CAC security assessment is required (rather
+  than a static note);
+- a security-assessment checklist, cross-border transfer legal paths (PIPL),
+  and DPO / access-request notes (PDPA).
 
 ## PIPL security assessment template
 
