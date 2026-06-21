@@ -5,6 +5,28 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.0] - 2026-06-20
+
+### Added
+- **Per-field policies.** `field_policies` in `migration.yaml` pins a field to an
+  explicit action — `mask`, `tokenize`, `drop` (remove the column/key/element), or
+  `keep` (leave untouched) — overriding the global mode and the auto-detector.
+  Works across all 8 formats.
+- **Detection confidence + audit mode.** `cloakpii scan --audit` reports a
+  per-field HIGH/MED/LOW confidence breakdown and flags fields that **need
+  review** — columns whose name suggests PII but whose values don't match a known
+  pattern (free-text names, odd formats — the detector's blind spots).
+- **Richer compliance reports.** `--compliance-report` now includes a real
+  data-processing summary (files, records, PII values, data categories) and, for
+  PIPL, computes the 100k-record threshold from the actual row count.
+- **Streaming encryption for large files.** Files ≥ 50 MB use an additive,
+  magic-byte-detected chunked format (1 MiB chunks, constant memory) that detects
+  reordering/truncation as well as tampering. Legacy ciphertext stays
+  byte-compatible; decryption auto-detects the format.
+- **Database source connectors.** `cloakpii db-export --url ... --output ./dump`
+  exports tables to CSV for the pipeline. SQLite needs no extra dependency;
+  PostgreSQL and MySQL are optional extras (`cloakpii[postgres]`, `cloakpii[mysql]`).
+
 ## [1.4.3] - 2026-06-19
 
 ### Documentation
