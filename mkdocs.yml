@@ -42,6 +42,7 @@ nav:
   - Compliance (PIPL/PDPA/GDPR): compliance.md
   - Configuration: configuration.md
   - Security: security.md
+  - FAQ: faq.md
 
 markdown_extensions:
   - admonition

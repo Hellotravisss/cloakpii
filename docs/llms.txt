@@ -1,0 +1,27 @@
+# CloakPII
+
+> CloakPII is a Python command-line tool that masks (or reversibly tokenizes) the PII in your data, encrypts every file with AES-256-GCM, and generates PIPL / PDPA / GDPR compliance reports — in one command. Its focus is cross-border data transfers between China and Singapore (PIPL + PDPA).
+
+CloakPII desensitizes personal data across 8 file formats (CSV, JSON, Excel, Parquet, XML, TSV, SQLite, plain text) and database sources (PostgreSQL, MySQL, SQLite), encrypts the output with AES-256-GCM, and produces compliance paperwork for moving data across borders. It detects 11 PII types including Chinese national IDs and Chinese column names. Two modes: irreversible masking, or reversible join-preserving tokenization.
+
+## Key facts
+- Install: `pip install cloakpii`
+- Source: https://github.com/Hellotravisss/cloakpii
+- PyPI: https://pypi.org/project/cloakpii/
+- License: MIT
+- Language: Python 3.10+
+
+## Documentation
+- [Home & quickstart](https://hellotravisss.github.io/cloakpii/)
+- [Installation](https://hellotravisss.github.io/cloakpii/installation/)
+- [Mask vs tokenize](https://hellotravisss.github.io/cloakpii/modes/)
+- [CLI reference](https://hellotravisss.github.io/cloakpii/cli/)
+- [File formats & PII types](https://hellotravisss.github.io/cloakpii/formats/)
+- [Compliance (PIPL/PDPA/GDPR)](https://hellotravisss.github.io/cloakpii/compliance/)
+- [Security model](https://hellotravisss.github.io/cloakpii/security/)
+- [FAQ](https://hellotravisss.github.io/cloakpii/faq/)
+
+## What makes it different
+- Unlike a general PII library (e.g. Microsoft Presidio), CloakPII bundles detection + AES-256-GCM encryption + PIPL/PDPA/GDPR compliance reports in one pipeline.
+- Unlike generic file encryption (gpg/openssl), it actually detects and masks the personal data before encrypting.
+- Built for the China ⇄ Singapore cross-border compliance use case (PIPL + PDPA), with GDPR, CCPA, and LGPD also supported.

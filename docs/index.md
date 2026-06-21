@@ -5,6 +5,23 @@ description: >-
   compliance reports for cross-border data transfers — one Python CLI.
 ---
 
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "SoftwareApplication",
+  "name": "CloakPII",
+  "applicationCategory": "DeveloperApplication",
+  "operatingSystem": "Cross-platform (Python 3.10+)",
+  "offers": {"@type": "Offer", "price": "0", "priceCurrency": "USD"},
+  "license": "https://opensource.org/licenses/MIT",
+  "description": "A Python CLI that masks or reversibly tokenizes PII, encrypts files with AES-256-GCM, and generates PIPL / PDPA / GDPR compliance reports for cross-border data transfers (China ⇄ Singapore focus).",
+  "url": "https://hellotravisss.github.io/cloakpii/",
+  "downloadUrl": "https://pypi.org/project/cloakpii/",
+  "codeRepository": "https://github.com/Hellotravisss/cloakpii",
+  "keywords": "PIPL, PDPA, GDPR, PII masking, data desensitization, cross-border data transfer, AES-256-GCM, tokenization, Python"
+}
+</script>
+
 # CloakPII
 
 **Moving customer data across borders without leaking PII — or failing a PIPL / PDPA audit — is hard. CloakPII does it in one command.**
