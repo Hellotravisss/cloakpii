@@ -8,6 +8,7 @@
 | `decrypt-all` | Decrypt a whole migration output tree         |
 | `detokenize`  | Reverse `--mode tokenize` back to originals   |
 | `scan`        | Scan a directory for PII without migrating    |
+| `db-export`   | Export database tables to CSV for migration   |
 | `assessment`  | Generate a PIPL Security Assessment template  |
 | `init`        | Initialize project configuration              |
 | `verify`      | Verify file integrity against a manifest      |
@@ -93,6 +94,28 @@ With `--resume`, each processed file (path + SHA-256) is recorded in
 `<output>/.migration_state.db`. Later runs skip files whose path and hash are
 unchanged; modified files are re-processed. Delete the state file to force a
 full re-run; a corrupted state DB is rebuilt automatically.
+
+## Database sources (`db-export`)
+
+Export tables from a database to CSV, then run the normal pipeline on them.
+SQLite needs no extra dependency; PostgreSQL and MySQL drivers are optional:
+
+```bash
+pip install "cloakpii[postgres]"   # psycopg
+pip install "cloakpii[mysql]"      # PyMySQL
+```
+
+```bash
+# 1. Dump tables to CSV (streamed in batches — constant memory)
+cloakpii db-export --url postgresql://user:pw@host/db --output ./dump
+cloakpii db-export --url "sqlite:///./app.db"          --output ./dump
+
+# 2. Desensitize + encrypt the dump
+cloakpii migrate --source ./dump --output ./safe --compliance-profile pipl --compliance-report
+```
+
+URL formats: `sqlite:///path/to.db`, `postgresql://user:pw@host:5432/db`,
+`mysql://user:pw@host:3306/db`.
 
 ## Docker
 

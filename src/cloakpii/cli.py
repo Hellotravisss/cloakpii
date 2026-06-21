@@ -98,6 +98,22 @@ def decrypt_command(args):
     logger.info(f"Decrypted: {args.input} → {args.output}")
 
 
+def db_export_command(args):
+    """Export database tables to CSV files for the migration pipeline."""
+    from .db import export_database, DBError
+    try:
+        summary = export_database(args.url, Path(args.output))
+    except DBError as exc:
+        logger.error(str(exc))
+        sys.exit(1)
+    print(f"\n  Exported {len(summary['tables'])} table(s), "
+          f"{summary['total_rows']:,} rows → {args.output}")
+    for t in summary["tables"]:
+        print(f"    {t['table']:30} {t['rows']:>10,} rows  → {t['path']}")
+    print(f"\n  Next: cloakpii migrate --source {args.output} --output ./safe "
+          "--compliance-profile pipl\n")
+
+
 def decrypt_all_command(args):
     """Decrypt an entire migration output tree back to plaintext."""
     from .migrate import decrypt_tree
@@ -753,6 +769,13 @@ Environment variables:
 
 
     # --- scan ---
+    # --- db-export ---
+    p = sub.add_parser("db-export", help="Export database tables to CSV for migration")
+    p.add_argument("--url", required=True,
+                   help="DB URL: sqlite:///path.db | postgresql://user:pw@host/db | mysql://...")
+    p.add_argument("--output", required=True, help="Directory to write table CSVs into")
+    p.set_defaults(func=db_export_command)
+
     p = sub.add_parser("scan", help="Scan for PII without migration")
     p.add_argument("--source", default="examples", help="Source directory to scan")
     p.add_argument("--output", default=None, help="Save scan report to JSON file")

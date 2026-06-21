@@ -34,6 +34,10 @@ dependencies = [
     "tqdm>=4.60",
 ]
 
+[project.optional-dependencies]
+postgres = ["psycopg>=3.1"]
+mysql = ["PyMySQL>=1.1"]
+
 [project.urls]
 Homepage = "https://github.com/Hellotravisss/cloakpii"
 Repository = "https://github.com/Hellotravisss/cloakpii"
