@@ -160,6 +160,8 @@ def migrate_command(args):
         if config.log_file:
             log_file = log_file or config.log_file
 
+    field_policies = config.field_policies if config and config.field_policies else None
+
     if args.audit:
         audit_path = Path(args.audit)
 
@@ -192,6 +194,7 @@ def migrate_command(args):
         resume=resume,
         state=state,
         mode=getattr(args, "mode", "mask"),
+        field_policies=field_policies,
     )
 
     # Write report

@@ -23,6 +23,31 @@ custom_pii_patterns: []
 cloakpii migrate --config migration.yaml
 ```
 
+## Per-field policies
+
+By default every field is auto-detected and masked (or tokenized in
+`--mode tokenize`). For granular control, pin specific fields to an action with
+`field_policies` — it overrides both the global mode and the auto-detector for
+those fields:
+
+```yaml
+field_policies:
+  email:    tokenize    # reversible, join-preserving
+  phone:    mask        # irreversible
+  salary:   drop        # remove the column/key entirely
+  user_id:  keep        # leave untouched
+```
+
+| Action     | Effect                                                        |
+|------------|--------------------------------------------------------------|
+| `mask`     | Irreversibly mask the value (forced, even if no regex matches) |
+| `tokenize` | Replace with a stable reversible token                       |
+| `drop`     | Remove the field — column (CSV/TSV/Excel/Parquet/SQLite), key (JSON), or element/attribute (XML) |
+| `keep`     | Leave the value exactly as-is                                |
+
+Field names match case-insensitively. Fields not listed fall back to the
+default auto-detect behaviour. An unknown action is ignored with a warning.
+
 !!! danger "Secrets are never written to a config file"
     CloakPII refuses to serialize `password` / `key_file` into a config file.
     Provide the password via `CLOAKPII_PASSWORD`, `--key-file`, or the

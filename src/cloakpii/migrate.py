@@ -110,6 +110,29 @@ SUPPORTED_EXTENSIONS = {
 }
 
 
+def _normalize_field_policies(field_policies: Optional[dict]) -> Optional[dict]:
+    """Validate and normalize per-field policies.
+
+    Returns a dict of ``lower-cased field name → action`` (one of
+    mask/tokenize/drop/keep), or None if empty. Unknown actions are dropped
+    with a warning.
+    """
+    if not field_policies:
+        return None
+    from .pii import FIELD_ACTIONS
+    normalized = {}
+    for name, action in field_policies.items():
+        act = str(action).strip().lower()
+        if act not in FIELD_ACTIONS:
+            logger.warning(
+                f"Ignoring field policy for '{name}': unknown action '{action}' "
+                f"(expected one of {sorted(FIELD_ACTIONS)})."
+            )
+            continue
+        normalized[str(name).strip().lower()] = act
+    return normalized or None
+
+
 def run_migration(
     source_dir: Path,
     output_dir: Path,
@@ -127,6 +150,7 @@ def run_migration(
     resume: bool = False,
     state=None,  # MigrationState for incremental processing
     mode: str = "mask",  # "mask" (irreversible) or "tokenize" (reversible pseudonyms)
+    field_policies: Optional[dict] = None,  # per-field action: mask/tokenize/drop/keep
 ) -> MigrationReport:
     """
     Execute migration pipeline: discover → desensitize → encrypt → verify.
@@ -162,6 +186,9 @@ def run_migration(
     source_dir = Path(source_dir)
     output_dir = Path(output_dir)
 
+    # Normalize per-field policies: lower-cased field name → validated action.
+    field_policies = _normalize_field_policies(field_policies)
+
     if not source_dir.exists():
         report.errors.append(f"Source directory not found: {source_dir}")
         logger.error(report.errors[-1])
@@ -189,9 +216,13 @@ def run_migration(
             return report
 
     # Tokenization mode uses a deterministic, reversible pseudonymizer keyed by
-    # the password (built once and shared across files).
+    # the password (built once and shared across files). It is also needed if any
+    # per-field policy requests tokenization, even in mask mode.
     tokenizer = None
-    if mode == "tokenize":
+    needs_tokenizer = mode == "tokenize" or (
+        bool(field_policies) and "tokenize" in field_policies.values()
+    )
+    if needs_tokenizer:
         from .tokenize import Tokenizer
         try:
             tokenizer = Tokenizer(password)
@@ -275,9 +306,9 @@ def run_migration(
             logger.warning(f"  {f.relative_to(source_dir)}: {size / (1024*1024):.1f} MB")
 
     if workers <= 1:
-        _process_sequential(files, source_dir, output_dir, enc_key, enc_salt, dry_run, mode_label, report, show_progress, compress, audit, state, mode, tokenizer)
+        _process_sequential(files, source_dir, output_dir, enc_key, enc_salt, dry_run, mode_label, report, show_progress, compress, audit, state, mode, tokenizer, field_policies)
     else:
-        _process_parallel(files, source_dir, output_dir, enc_key, enc_salt, dry_run, mode_label, report, workers, show_progress, compress, state, mode, tokenizer)
+        _process_parallel(files, source_dir, output_dir, enc_key, enc_salt, dry_run, mode_label, report, workers, show_progress, compress, state, mode, tokenizer, field_policies)
 
     # Compliance validation
     if compliance_profile and not dry_run:
@@ -331,21 +362,21 @@ def run_migration(
     return report
 
 
-def _process_sequential(files, source_dir, output_dir, enc_key, enc_salt, dry_run, mode_label, report, show_progress, compress, audit, state=None, transform_mode="mask", tokenizer=None):
+def _process_sequential(files, source_dir, output_dir, enc_key, enc_salt, dry_run, mode_label, report, show_progress, compress, audit, state=None, transform_mode="mask", tokenizer=None, field_policies=None):
     """Process files one by one."""
     iterator = _maybe_tqdm(files, "Processing", show_progress)
     for filepath in iterator:
-        _process_single_file(filepath, source_dir, output_dir, enc_key, enc_salt, dry_run, mode_label, report, compress, audit, state, transform_mode, tokenizer)
+        _process_single_file(filepath, source_dir, output_dir, enc_key, enc_salt, dry_run, mode_label, report, compress, audit, state, transform_mode, tokenizer, field_policies)
 
 
-def _process_parallel(files, source_dir, output_dir, enc_key, enc_salt, dry_run, mode_label, report, workers, show_progress, compress, state=None, transform_mode="mask", tokenizer=None):
+def _process_parallel(files, source_dir, output_dir, enc_key, enc_salt, dry_run, mode_label, report, workers, show_progress, compress, state=None, transform_mode="mask", tokenizer=None, field_policies=None):
     """Process files in parallel using ThreadPoolExecutor."""
     results = []
     with ThreadPoolExecutor(max_workers=workers) as executor:
         future_to_file = {
             executor.submit(
                 _process_single_file_standalone,
-                filepath, source_dir, output_dir, enc_key, enc_salt, dry_run, compress, state, transform_mode, tokenizer
+                filepath, source_dir, output_dir, enc_key, enc_salt, dry_run, compress, state, transform_mode, tokenizer, field_policies
             ): filepath
             for filepath in files
         }
@@ -380,7 +411,7 @@ def _process_parallel(files, source_dir, output_dir, enc_key, enc_salt, dry_run,
             report.errors.append(error)
 
 
-def _process_single_file(filepath, source_dir, output_dir, enc_key, enc_salt, dry_run, mode_label, report, compress, audit, state=None, transform_mode="mask", tokenizer=None):
+def _process_single_file(filepath, source_dir, output_dir, enc_key, enc_salt, dry_run, mode_label, report, compress, audit, state=None, transform_mode="mask", tokenizer=None, field_policies=None):
     """Process a single file (sequential mode)."""
     rel = filepath.relative_to(source_dir)
     file_type = _classify_file(filepath)
@@ -414,7 +445,7 @@ def _process_single_file(filepath, source_dir, output_dir, enc_key, enc_salt, dr
             desensitized_path = output_dir / "desensitized" / rel
             encrypted_path = output_dir / "encrypted" / (str(rel) + ".enc")
 
-            pii_info = _desensitize_file(filepath, desensitized_path, file_type, transform_mode, tokenizer)
+            pii_info = _desensitize_file(filepath, desensitized_path, file_type, transform_mode, tokenizer, field_policies)
 
             # Mark as processed in state
             if state is not None:
@@ -449,7 +480,7 @@ def _process_single_file(filepath, source_dir, output_dir, enc_key, enc_salt, dr
                 audit.log_error(str(rel), str(exc))
 
 
-def _process_single_file_standalone(filepath, source_dir, output_dir, enc_key, enc_salt, dry_run, compress, state=None, transform_mode="mask", tokenizer=None):
+def _process_single_file_standalone(filepath, source_dir, output_dir, enc_key, enc_salt, dry_run, compress, state=None, transform_mode="mask", tokenizer=None, field_policies=None):
     """Process a single file (parallel mode — no shared state)."""
     rel = filepath.relative_to(source_dir)
     file_type = _classify_file(filepath)
@@ -471,7 +502,7 @@ def _process_single_file_standalone(filepath, source_dir, output_dir, enc_key, e
             desensitized_path = output_dir / "desensitized" / rel
             encrypted_path = output_dir / "encrypted" / (str(rel) + ".enc")
 
-            pii_info = _desensitize_file(filepath, desensitized_path, file_type, transform_mode, tokenizer)
+            pii_info = _desensitize_file(filepath, desensitized_path, file_type, transform_mode, tokenizer, field_policies)
 
             # Mark as processed in state
             if state is not None:
@@ -697,7 +728,7 @@ def _preview_sqlite(filepath: Path) -> dict:
 
 
 def _desensitize_file(filepath: Path, output_path: Path, file_type: str,
-                      mode="mask", tokenizer=None) -> dict:
+                      mode="mask", tokenizer=None, field_policies=None) -> dict:
     """Transform a file (mask/tokenize/detokenize) and return PII report info."""
     desensitizers = {
         "csv": desensitize_csv,
@@ -710,7 +741,8 @@ def _desensitize_file(filepath: Path, output_path: Path, file_type: str,
     }
 
     if file_type in desensitizers:
-        r = desensitizers[file_type](filepath, output_path, mode=mode, tokenizer=tokenizer)
+        r = desensitizers[file_type](filepath, output_path, mode=mode, tokenizer=tokenizer,
+                                     field_policies=field_policies)
     elif file_type == "text":
         text = filepath.read_text(encoding="utf-8")
         masked, count = desensitize_text(text, mode=mode, tokenizer=tokenizer)

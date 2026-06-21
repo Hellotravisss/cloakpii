@@ -41,6 +41,9 @@ class MigrationConfig:
     # PII customization
     custom_pii_patterns: list[str] = field(default_factory=list)
     field_mappings: dict[str, str] = field(default_factory=dict)
+    # Per-field policy: field name → action (mask | tokenize | drop | keep).
+    # Overrides the global mode and the auto-detector for that field.
+    field_policies: dict[str, str] = field(default_factory=dict)
 
     # Filtering
     skip_patterns: list[str] = field(default_factory=list)

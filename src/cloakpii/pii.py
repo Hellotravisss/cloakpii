@@ -277,7 +277,29 @@ def _is_pii_field(field_name: str) -> bool:
     return any(kw in lower for kw in NAME_KEYWORDS)
 
 
-def _transform_cell(value, field_name="", mode="mask", tokenizer=None):
+# Per-field policy actions. A field may be explicitly assigned one of these,
+# overriding the global mode and the auto-detector.
+FIELD_ACTIONS = {"mask", "tokenize", "drop", "keep"}
+
+
+def resolve_field_action(field_name, field_policies):
+    """Return the explicit policy action for a field, or None for default behaviour.
+
+    ``field_policies`` is a dict of normalized (lower-cased) field name → action.
+    """
+    if not field_policies or not field_name:
+        return None
+    return field_policies.get(str(field_name).strip().lower())
+
+
+def _dropped_fields(names, field_policies):
+    """Return the set of field names whose policy action is ``drop``."""
+    if not field_policies:
+        return set()
+    return {n for n in names if resolve_field_action(n, field_policies) == "drop"}
+
+
+def _transform_cell(value, field_name="", mode="mask", tokenizer=None, field_policies=None):
     """Single source of truth for transforming one cell/value.
 
     Modes:
@@ -285,23 +307,48 @@ def _transform_cell(value, field_name="", mode="mask", tokenizer=None):
       - "tokenize"   : replace a whole PII value with a stable reversible token
       - "detokenize" : reverse any tokens found back to the original value
 
+    ``field_policies`` (optional) maps a field name to an explicit action
+    (mask/tokenize/keep/drop) that overrides the global mode and auto-detection.
+    ``drop`` is structural (the column/key is removed by the caller); here it
+    just leaves the value untouched.
+
     Returns (new_value, changed).
     """
+    # detokenize restores originals — field policies don't apply.
+    if mode == "detokenize":
+        if not isinstance(value, str) or not value:
+            return value, False
+        from .tokenize import TOKEN_RE
+        if TOKEN_RE.search(value):
+            return tokenizer.detokenize_text(value), True
+        return value, False
+
+    action = resolve_field_action(field_name, field_policies)
+    if action in ("keep", "drop"):
+        # keep: leave untouched. drop: the caller removes the field entirely.
+        return value, False
+
     if not isinstance(value, str) or not value:
         return value, False
 
+    # Explicit per-field action wins over the global mode / auto-detector.
+    if action == "tokenize":
+        if not value.strip():
+            return value, False
+        return tokenizer.tokenize(value), True
+    if action == "mask":
+        masked = mask_value(value)
+        if masked == value and value.strip():
+            masked = mask_generic(value)  # forced — the user pinned this field to mask
+        return masked, masked != value
+
+    # No explicit policy → original auto behaviour based on the global mode.
     if mode == "tokenize":
         if not value.strip():
             return value, False
         is_pii = (bool(field_name) and _is_pii_field(field_name)) or (mask_value(value) != value)
         if is_pii:
             return tokenizer.tokenize(value), True
-        return value, False
-
-    if mode == "detokenize":
-        from .tokenize import TOKEN_RE
-        if TOKEN_RE.search(value):
-            return tokenizer.detokenize_text(value), True
         return value, False
 
     # default: mask
@@ -391,7 +438,8 @@ def desensitize_text(text: str, mode="mask", tokenizer=None) -> tuple:
 # CSV
 # ---------------------------------------------------------------------------
 
-def desensitize_csv(input_path: Path, output_path: Path, mode="mask", tokenizer=None) -> DesensitizeReport:
+def desensitize_csv(input_path: Path, output_path: Path, mode="mask", tokenizer=None,
+                    field_policies=None) -> DesensitizeReport:
     """Read CSV, transform PII in every cell, write to output_path."""
     report = DesensitizeReport()
     input_path = Path(input_path)
@@ -401,24 +449,28 @@ def desensitize_csv(input_path: Path, output_path: Path, mode="mask", tokenizer=
         reader = csv.DictReader(f)
         fieldnames = reader.fieldnames or []
 
+        dropped = _dropped_fields(fieldnames, field_policies)
+        out_fields = [fn for fn in fieldnames if fn not in dropped]
+
         # Determine which fields need name-based masking
-        pii_fields = [fn for fn in fieldnames if _is_pii_field(fn)]
+        pii_fields = [fn for fn in out_fields if _is_pii_field(fn)]
         report.fields_masked = list(pii_fields)
 
         rows = []
         for row in reader:
             report.rows_processed += 1
-            for fn in fieldnames:
+            out_row = {}
+            for fn in out_fields:
                 original = row.get(fn, "")
-                new_value, changed = _transform_cell(original, fn, mode, tokenizer)
+                new_value, changed = _transform_cell(original, fn, mode, tokenizer, field_policies)
                 if changed:
                     report.values_masked += 1
-                row[fn] = new_value
-            rows.append(row)
+                out_row[fn] = new_value
+            rows.append(out_row)
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     with open(output_path, "w", newline="", encoding="utf-8") as f:
-        writer = csv.DictWriter(f, fieldnames=fieldnames)
+        writer = csv.DictWriter(f, fieldnames=out_fields)
         writer.writeheader()
         writer.writerows(rows)
 
@@ -430,18 +482,23 @@ def desensitize_csv(input_path: Path, output_path: Path, mode="mask", tokenizer=
 # ---------------------------------------------------------------------------
 
 def _desensitize_json_node(node: Any, report: DesensitizeReport, parent_key: str = "",
-                           mode="mask", tokenizer=None) -> Any:
+                           mode="mask", tokenizer=None, field_policies=None) -> Any:
     """Recursively walk a JSON structure and transform PII values."""
     if isinstance(node, dict):
         result = {}
         for k, v in node.items():
-            result[k] = _desensitize_json_node(v, report, parent_key=k, mode=mode, tokenizer=tokenizer)
+            # Drop a key entirely if its policy says so (mask/tokenize runs only).
+            if mode != "detokenize" and resolve_field_action(k, field_policies) == "drop":
+                continue
+            result[k] = _desensitize_json_node(v, report, parent_key=k, mode=mode,
+                                               tokenizer=tokenizer, field_policies=field_policies)
         return result
     elif isinstance(node, list):
-        return [_desensitize_json_node(item, report, parent_key=parent_key, mode=mode, tokenizer=tokenizer)
+        return [_desensitize_json_node(item, report, parent_key=parent_key, mode=mode,
+                                       tokenizer=tokenizer, field_policies=field_policies)
                 for item in node]
     elif isinstance(node, str):
-        new_value, changed = _transform_cell(node, parent_key, mode, tokenizer)
+        new_value, changed = _transform_cell(node, parent_key, mode, tokenizer, field_policies)
         if changed:
             report.values_masked += 1
             if parent_key and parent_key not in report.fields_masked:
@@ -454,7 +511,7 @@ def _desensitize_json_node(node: Any, report: DesensitizeReport, parent_key: str
         # Numeric PII (phones, IDs, account numbers stored as numbers) would
         # otherwise pass through unmasked. Mask on the string form; if it
         # changes, emit the masked string (the value is no longer a number).
-        new_value, changed = _transform_cell(str(node), parent_key, mode, tokenizer)
+        new_value, changed = _transform_cell(str(node), parent_key, mode, tokenizer, field_policies)
         if changed:
             report.values_masked += 1
             if parent_key and parent_key not in report.fields_masked:
@@ -465,7 +522,8 @@ def _desensitize_json_node(node: Any, report: DesensitizeReport, parent_key: str
         return node
 
 
-def desensitize_json(input_path: Path, output_path: Path, mode="mask", tokenizer=None) -> DesensitizeReport:
+def desensitize_json(input_path: Path, output_path: Path, mode="mask", tokenizer=None,
+                     field_policies=None) -> DesensitizeReport:
     """Read JSON, transform PII recursively, write to output_path."""
     report = DesensitizeReport()
     input_path = Path(input_path)
@@ -477,7 +535,8 @@ def desensitize_json(input_path: Path, output_path: Path, mode="mask", tokenizer
     if isinstance(data, list):
         report.rows_processed = len(data)
 
-    masked_data = _desensitize_json_node(data, report, mode=mode, tokenizer=tokenizer)
+    masked_data = _desensitize_json_node(data, report, mode=mode, tokenizer=tokenizer,
+                                         field_policies=field_policies)
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     with open(output_path, "w", encoding="utf-8") as f:
@@ -490,7 +549,8 @@ def desensitize_json(input_path: Path, output_path: Path, mode="mask", tokenizer
 # Excel (.xlsx)
 # ---------------------------------------------------------------------------
 
-def desensitize_excel(input_path: Path, output_path: Path, mode="mask", tokenizer=None) -> DesensitizeReport:
+def desensitize_excel(input_path: Path, output_path: Path, mode="mask", tokenizer=None,
+                      field_policies=None) -> DesensitizeReport:
     """Read Excel workbook, transform PII in all sheets, write to output_path."""
     import openpyxl
 
@@ -509,7 +569,15 @@ def desensitize_excel(input_path: Path, output_path: Path, mode="mask", tokenize
         # First row is header
         header_cells = rows[0]
         fieldnames = [cell.value or "" for cell in header_cells]
-        pii_fields = [fn for fn in fieldnames if _is_pii_field(str(fn))]
+
+        # 1-based column indices to drop (only in mask/tokenize runs).
+        drop_idx = []
+        if mode != "detokenize" and field_policies:
+            drop_idx = [i + 1 for i, fn in enumerate(fieldnames)
+                        if resolve_field_action(str(fn), field_policies) == "drop"]
+
+        pii_fields = [fn for i, fn in enumerate(fieldnames)
+                      if (i + 1) not in drop_idx and _is_pii_field(str(fn))]
         for pf in pii_fields:
             if pf not in report.fields_masked:
                 report.fields_masked.append(pf)
@@ -517,14 +585,18 @@ def desensitize_excel(input_path: Path, output_path: Path, mode="mask", tokenize
         for row in rows[1:]:
             report.rows_processed += 1
             for idx, cell in enumerate(row):
-                if cell.value is None:
+                if (idx + 1) in drop_idx or cell.value is None:
                     continue
                 original = str(cell.value)
                 fn = fieldnames[idx] if idx < len(fieldnames) else ""
-                new_value, changed = _transform_cell(original, str(fn), mode, tokenizer)
+                new_value, changed = _transform_cell(original, str(fn), mode, tokenizer, field_policies)
                 if changed:
                     report.values_masked += 1
                     cell.value = new_value
+
+        # Delete dropped columns right-to-left so indices stay valid.
+        for col in sorted(drop_idx, reverse=True):
+            ws.delete_cols(col)
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     wb.save(output_path)
@@ -537,7 +609,8 @@ def desensitize_excel(input_path: Path, output_path: Path, mode="mask", tokenize
 # Parquet (.parquet)
 # ---------------------------------------------------------------------------
 
-def desensitize_parquet(input_path: Path, output_path: Path, mode="mask", tokenizer=None) -> DesensitizeReport:
+def desensitize_parquet(input_path: Path, output_path: Path, mode="mask", tokenizer=None,
+                        field_policies=None) -> DesensitizeReport:
     """Read Parquet file, transform PII in string columns, write to output_path."""
     import pyarrow.parquet as pq
     import pyarrow as pa
@@ -549,13 +622,18 @@ def desensitize_parquet(input_path: Path, output_path: Path, mode="mask", tokeni
     table = pq.read_table(input_path)
     schema = table.schema
 
+    drop = set()
+    if mode != "detokenize" and field_policies:
+        drop = {fld.name for fld in schema
+                if resolve_field_action(fld.name, field_policies) == "drop"}
+
     # Identify string columns and PII field names
     pii_fields = []
     string_cols = []
     for i, fld in enumerate(schema):
         if pa.types.is_string(fld.type) or pa.types.is_large_string(fld.type):
             string_cols.append(i)
-            if _is_pii_field(fld.name):
+            if fld.name not in drop and _is_pii_field(fld.name):
                 pii_fields.append(fld.name)
 
     report.fields_masked = list(pii_fields)
@@ -566,7 +644,11 @@ def desensitize_parquet(input_path: Path, output_path: Path, mode="mask", tokeni
     # scanned too — if any value is PII the whole column is emitted as strings,
     # since a masked value (e.g. "138-****-**78") is no longer numeric.
     new_columns = []
+    out_names = []
     for i, fld in enumerate(schema):
+        if fld.name in drop:
+            continue  # column removed from output
+        out_names.append(fld.name)
         col = table.column(i)
         if i in string_cols:
             masked_values = []
@@ -575,7 +657,7 @@ def desensitize_parquet(input_path: Path, output_path: Path, mode="mask", tokeni
                     masked_values.append(None)
                     continue
                 original = str(val)
-                new_value, changed = _transform_cell(original, fld.name, mode, tokenizer)
+                new_value, changed = _transform_cell(original, fld.name, mode, tokenizer, field_policies)
                 if changed:
                     report.values_masked += 1
                 masked_values.append(new_value)
@@ -590,7 +672,7 @@ def desensitize_parquet(input_path: Path, output_path: Path, mode="mask", tokeni
                 if val is None:
                     masked_values.append(None)
                     continue
-                new_value, changed = _transform_cell(str(val), fld.name, mode, tokenizer)
+                new_value, changed = _transform_cell(str(val), fld.name, mode, tokenizer, field_policies)
                 if changed:
                     report.values_masked += 1
                     col_changed = True
@@ -606,7 +688,7 @@ def desensitize_parquet(input_path: Path, output_path: Path, mode="mask", tokeni
             else:
                 new_columns.append(col)
 
-    new_table = pa.table(dict(zip([f.name for f in schema], new_columns)))
+    new_table = pa.table(dict(zip(out_names, new_columns)))
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     pq.write_table(new_table, output_path)
@@ -618,7 +700,8 @@ def desensitize_parquet(input_path: Path, output_path: Path, mode="mask", tokeni
 # XML (.xml)
 # ---------------------------------------------------------------------------
 
-def desensitize_xml(input_path: Path, output_path: Path, mode="mask", tokenizer=None) -> DesensitizeReport:
+def desensitize_xml(input_path: Path, output_path: Path, mode="mask", tokenizer=None,
+                    field_policies=None) -> DesensitizeReport:
     """Read XML file, transform PII in text content and attributes, write to output_path."""
     report = DesensitizeReport()
     input_path = Path(input_path)
@@ -633,12 +716,19 @@ def desensitize_xml(input_path: Path, output_path: Path, mode="mask", tokenizer=
         safe = re.sub(r"<!DOCTYPE[^>]*>", "", safe)
         tree = ET.ElementTree(ET.fromstring(safe))
     root = tree.getroot()
+    drops = mode != "detokenize" and bool(field_policies)
 
     def _mask_element(elem):
         """Recursively transform PII in an XML element."""
+        # Drop child elements whose tag policy says so (mask/tokenize runs only).
+        if drops:
+            for child in list(elem):
+                if resolve_field_action(child.tag, field_policies) == "drop":
+                    elem.remove(child)
+
         # Element text — use the tag name as the field-name hint
         if elem.text and elem.text.strip():
-            new_value, changed = _transform_cell(elem.text, elem.tag, mode, tokenizer)
+            new_value, changed = _transform_cell(elem.text, elem.tag, mode, tokenizer, field_policies)
             if changed:
                 report.values_masked += 1
                 if _is_pii_field(elem.tag) and elem.tag not in report.fields_masked:
@@ -647,14 +737,17 @@ def desensitize_xml(input_path: Path, output_path: Path, mode="mask", tokenizer=
 
         # Tail text (after closing tag) — no field-name context
         if elem.tail and elem.tail.strip():
-            new_value, changed = _transform_cell(elem.tail, "", mode, tokenizer)
+            new_value, changed = _transform_cell(elem.tail, "", mode, tokenizer, field_policies)
             if changed:
                 report.values_masked += 1
                 elem.tail = new_value
 
         # Attributes
         for attr_name, attr_val in list(elem.attrib.items()):
-            new_value, changed = _transform_cell(attr_val, attr_name, mode, tokenizer)
+            if drops and resolve_field_action(attr_name, field_policies) == "drop":
+                del elem.attrib[attr_name]
+                continue
+            new_value, changed = _transform_cell(attr_val, attr_name, mode, tokenizer, field_policies)
             if changed:
                 report.values_masked += 1
                 if attr_name not in report.fields_masked:
@@ -684,7 +777,8 @@ def desensitize_xml(input_path: Path, output_path: Path, mode="mask", tokenizer=
 # TSV (Tab-Separated Values)
 # ---------------------------------------------------------------------------
 
-def desensitize_tsv(input_path: Path, output_path: Path, mode="mask", tokenizer=None) -> DesensitizeReport:
+def desensitize_tsv(input_path: Path, output_path: Path, mode="mask", tokenizer=None,
+                    field_policies=None) -> DesensitizeReport:
     """Read TSV file, transform PII in every cell, write to output_path."""
     report = DesensitizeReport()
     input_path = Path(input_path)
@@ -694,24 +788,28 @@ def desensitize_tsv(input_path: Path, output_path: Path, mode="mask", tokenizer=
         reader = csv.DictReader(f, delimiter="\t")
         fieldnames = reader.fieldnames or []
 
+        dropped = _dropped_fields(fieldnames, field_policies)
+        out_fields = [fn for fn in fieldnames if fn not in dropped]
+
         # Determine which fields need name-based masking
-        pii_fields = [fn for fn in fieldnames if _is_pii_field(fn)]
+        pii_fields = [fn for fn in out_fields if _is_pii_field(fn)]
         report.fields_masked = list(pii_fields)
 
         rows = []
         for row in reader:
             report.rows_processed += 1
-            for fn in fieldnames:
+            out_row = {}
+            for fn in out_fields:
                 original = row.get(fn, "")
-                new_value, changed = _transform_cell(original, fn, mode, tokenizer)
+                new_value, changed = _transform_cell(original, fn, mode, tokenizer, field_policies)
                 if changed:
                     report.values_masked += 1
-                row[fn] = new_value
-            rows.append(row)
+                out_row[fn] = new_value
+            rows.append(out_row)
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     with open(output_path, "w", newline="", encoding="utf-8") as f:
-        writer = csv.DictWriter(f, fieldnames=fieldnames, delimiter="\t")
+        writer = csv.DictWriter(f, fieldnames=out_fields, delimiter="\t")
         writer.writeheader()
         writer.writerows(rows)
 
@@ -722,7 +820,8 @@ def desensitize_tsv(input_path: Path, output_path: Path, mode="mask", tokenizer=
 # SQLite (.db, .sqlite, .sqlite3)
 # ---------------------------------------------------------------------------
 
-def desensitize_sqlite(input_path: Path, output_path: Path, mode="mask", tokenizer=None) -> DesensitizeReport:
+def desensitize_sqlite(input_path: Path, output_path: Path, mode="mask", tokenizer=None,
+                       field_policies=None) -> DesensitizeReport:
     """Copy a SQLite database and transform PII in every non-BLOB column.
 
     Masking runs on a temporary copy that is promoted to ``output_path`` only
@@ -760,71 +859,102 @@ def desensitize_sqlite(input_path: Path, output_path: Path, mode="mask", tokeniz
                 # columns: (cid, name, type, notnull, dflt_value, pk)
                 col_names = [col[1] for col in columns]
 
-                # Mask every column except BLOBs. SQLite is dynamically typed, so
-                # a masked string can be stored back into an INTEGER/REAL column —
-                # this catches PII (phones, IDs, account numbers) held as numbers,
-                # which a TEXT-only filter would silently leak.
+                # Columns to drop entirely (mask/tokenize runs only).
+                drop_cols = []
+                if mode != "detokenize" and field_policies:
+                    drop_cols = [c for c in col_names
+                                 if resolve_field_action(c, field_policies) == "drop"]
+
+                # Mask every column except BLOBs (and ones we're about to drop).
+                # SQLite is dynamically typed, so a masked string can be stored
+                # back into an INTEGER/REAL column — this catches PII (phones,
+                # IDs, account numbers) held as numbers that a TEXT-only filter
+                # would silently leak.
                 maskable_cols = [col[1] for col in columns
-                                 if "BLOB" not in (col[2] or "").upper()]
-                if not maskable_cols:
+                                 if "BLOB" not in (col[2] or "").upper()
+                                 and col[1] not in drop_cols]
+                if not maskable_cols and not drop_cols:
                     continue
 
-                # Row identification: rowid if the table has one, else primary
-                # key (WITHOUT ROWID tables have no rowid column).
-                try:
-                    cursor.execute(f'SELECT rowid FROM "{table_name}" LIMIT 1').fetchall()
-                    has_rowid = True
-                except sqlite3.OperationalError:
-                    has_rowid = False
-                pk_cols = [col[1] for col in columns if col[5]]  # col[5] = pk position
+                # --- mask remaining columns ---
+                if maskable_cols:
+                    # Row identification: rowid if the table has one, else primary
+                    # key (WITHOUT ROWID tables have no rowid column).
+                    try:
+                        cursor.execute(f'SELECT rowid FROM "{table_name}" LIMIT 1').fetchall()
+                        has_rowid = True
+                    except sqlite3.OperationalError:
+                        has_rowid = False
+                    pk_cols = [col[1] for col in columns if col[5]]  # col[5] = pk position
 
-                if has_rowid:
-                    cursor.execute(f'SELECT rowid, * FROM "{table_name}";')
-                    fetched = [(r[0], r[1:]) for r in cursor.fetchall()]
-                elif pk_cols:
-                    cursor.execute(f'SELECT * FROM "{table_name}";')
-                    fetched = [(None, r) for r in cursor.fetchall()]
-                else:
-                    import logging
-                    logging.getLogger("CloakPII").warning(
-                        f"Table '{table_name}' has neither rowid nor a primary "
-                        "key; skipping (cannot identify rows to mask safely)."
-                    )
-                    continue
-
-                report.rows_processed += len(fetched)
-                for col_name in maskable_cols:
-                    if _is_pii_field(col_name) and col_name not in report.fields_masked:
-                        report.fields_masked.append(col_name)
-
-                for rowid, row_data in fetched:
-                    updates = {}
-                    for col_idx, col_name in enumerate(col_names):
-                        if col_name not in maskable_cols:
-                            continue
-                        original = row_data[col_idx]
-                        # None and BLOB (bytes) values are not scalar PII text.
-                        if original is None or isinstance(original, bytes):
-                            continue
-                        new_value, changed = _transform_cell(str(original), col_name, mode, tokenizer)
-                        if changed:
-                            report.values_masked += 1
-                            updates[col_name] = new_value
-
-                    if not updates:
-                        continue
-
-                    set_clause = ", ".join(f'"{k}" = ?' for k in updates)
-                    values = list(updates.values())
+                    fetched = None
                     if has_rowid:
-                        where_sql, where_params = "rowid = ?", [rowid]
+                        cursor.execute(f'SELECT rowid, * FROM "{table_name}";')
+                        fetched = [(r[0], r[1:]) for r in cursor.fetchall()]
+                    elif pk_cols:
+                        cursor.execute(f'SELECT * FROM "{table_name}";')
+                        fetched = [(None, r) for r in cursor.fetchall()]
                     else:
-                        where_sql = " AND ".join(f'"{pk}" = ?' for pk in pk_cols)
-                        where_params = [row_data[col_names.index(pk)] for pk in pk_cols]
-                    cursor.execute(
-                        f'UPDATE "{table_name}" SET {set_clause} WHERE {where_sql}',
-                        values + where_params,
-                    )
+                        import logging
+                        logging.getLogger("CloakPII").warning(
+                            f"Table '{table_name}' has neither rowid nor a primary "
+                            "key; skipping masking (cannot identify rows safely)."
+                        )
+
+                    if fetched is not None:
+                        report.rows_processed += len(fetched)
+                        for col_name in maskable_cols:
+                            if _is_pii_field(col_name) and col_name not in report.fields_masked:
+                                report.fields_masked.append(col_name)
+
+                        for rowid, row_data in fetched:
+                            updates = {}
+                            for col_idx, col_name in enumerate(col_names):
+                                if col_name not in maskable_cols:
+                                    continue
+                                original = row_data[col_idx]
+                                # None and BLOB (bytes) are not scalar PII text.
+                                if original is None or isinstance(original, bytes):
+                                    continue
+                                new_value, changed = _transform_cell(str(original), col_name, mode, tokenizer, field_policies)
+                                if changed:
+                                    report.values_masked += 1
+                                    updates[col_name] = new_value
+
+                            if not updates:
+                                continue
+
+                            set_clause = ", ".join(f'"{k}" = ?' for k in updates)
+                            values = list(updates.values())
+                            if has_rowid:
+                                where_sql, where_params = "rowid = ?", [rowid]
+                            else:
+                                where_sql = " AND ".join(f'"{pk}" = ?' for pk in pk_cols)
+                                where_params = [row_data[col_names.index(pk)] for pk in pk_cols]
+                            cursor.execute(
+                                f'UPDATE "{table_name}" SET {set_clause} WHERE {where_sql}',
+                                values + where_params,
+                            )
+
+                # --- drop columns (field policy = drop) ---
+                for c in drop_cols:
+                    cc = c.replace('"', '""')  # escape identifier quote
+                    try:
+                        cursor.execute(f'ALTER TABLE "{table_name}" DROP COLUMN "{cc}"')
+                    except sqlite3.OperationalError:
+                        # Old SQLite (no DROP COLUMN) or indexed/PK column —
+                        # null the data out so it is still removed.
+                        import logging
+                        try:
+                            cursor.execute(f'UPDATE "{table_name}" SET "{cc}" = NULL')
+                            logging.getLogger("CloakPII").warning(
+                                f"Could not drop column '{c}' in '{table_name}'; "
+                                "nulled its values instead."
+                            )
+                        except sqlite3.OperationalError:
+                            logging.getLogger("CloakPII").warning(
+                                f"Could not drop or null column '{c}' in '{table_name}'."
+                            )
 
             conn.commit()
 
