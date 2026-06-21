@@ -271,6 +271,72 @@ def mask_value(val: str) -> str:
     return result
 
 
+# Regex → PII type name, in the same priority order as mask_value.
+_PII_MATCHERS = [
+    ("ssn", SSN_RE), ("chinese_id", CHINESE_ID_RE), ("iban", IBAN_RE),
+    ("credit_card", CREDIT_CARD_RE), ("bank_account", BANK_ACCOUNT_RE),
+    ("passport", PASSPORT_RE), ("email", EMAIL_RE), ("ip", IP_RE),
+    ("mac_address", MAC_ADDRESS_RE), ("phone", PHONE_RE),
+]
+
+# Confidence levels for detected PII.
+CONFIDENCE_HIGH = 0.95    # values match a specific regex pattern
+CONFIDENCE_MEDIUM = 0.6   # field name signals PII and some values match / are free-text
+CONFIDENCE_LOW = 0.3      # name signals PII but values don't match a known pattern
+
+
+def match_pii_type(value: str) -> str | None:
+    """Return the name of the first PII type whose regex matches, else None."""
+    if not isinstance(value, str) or not value:
+        return None
+    # credit_card additionally requires a Luhn-valid number to count.
+    for name, regex in _PII_MATCHERS:
+        m = regex.search(value)
+        if not m:
+            continue
+        if name == "credit_card" and not luhn_valid(m.group()):
+            continue
+        return name
+    return None
+
+
+def field_confidence(field_name: str, values) -> dict:
+    """Classify a field's PII content from a sample of its values.
+
+    Returns a dict: ``field``, ``type`` (dominant PII type or None),
+    ``confidence`` (0..1), ``match_rate``, ``samples``, ``needs_review``.
+
+    ``needs_review`` flags fields where the *name* suggests PII but few/no
+    values match a known pattern — the place where undetected PII tends to hide
+    (free-text names, unusual formats, the regex's blind spots).
+    """
+    non_empty = [str(v) for v in values if str(v).strip()]
+    n = len(non_empty)
+    types = [t for v in non_empty if (t := match_pii_type(v))]
+    match_rate = (len(types) / n) if n else 0.0
+    name_signal = _is_pii_field(field_name)
+    dominant = max(set(types), key=types.count) if types else None
+
+    if match_rate >= 0.8:
+        confidence, ptype = CONFIDENCE_HIGH, dominant
+    elif match_rate >= 0.2 or (name_signal and match_rate > 0):
+        confidence, ptype = CONFIDENCE_MEDIUM, dominant
+    elif name_signal:
+        confidence, ptype = CONFIDENCE_LOW, "name-based"
+    else:
+        confidence, ptype = 0.0, None
+
+    return {
+        "field": field_name,
+        "type": ptype,
+        "confidence": round(confidence, 2),
+        "match_rate": round(match_rate, 3),
+        "samples": n,
+        # Name says PII but the detector is not confident → a human should look.
+        "needs_review": bool(name_signal and match_rate < 0.5),
+    }
+
+
 def _is_pii_field(field_name: str) -> bool:
     """Check if a column/field name suggests PII content."""
     lower = field_name.lower().replace(" ", "_").replace("-", "_")

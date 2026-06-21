@@ -350,7 +350,7 @@ def scan_command(args):
     logger.info(f"Scanning {source} for PII...")
     
     # Import needed functions
-    from .migrate import _preview_file, _classify_file
+    from .migrate import _preview_file, _classify_file, analyze_file
     
     # Collect all files
     files = []
@@ -364,10 +364,13 @@ def scan_command(args):
     
     logger.info(f"Found {len(files)} files to scan")
     
+    audit = getattr(args, "audit", False)
+
     # Scan each file
     total_pii_count = 0
     file_reports = []
-    
+    review_items = []  # (path, field) pairs needing human review
+
     for file_path in files:
         try:
             file_type = _classify_file(file_path)
@@ -375,16 +378,24 @@ def scan_command(args):
                 continue
             info = _preview_file(file_path, file_type)
             pii_count = info.get("values_masked", 0)
-            
-            file_reports.append({
-                "path": str(file_path.relative_to(source)),
+            rel = str(file_path.relative_to(source))
+
+            entry = {
+                "path": rel,
                 "type": file_type,
                 "pii_count": pii_count,
                 "size": file_path.stat().st_size,
-            })
-            
+            }
+
+            if audit:
+                analysis = analyze_file(file_path, file_type)
+                entry["fields"] = analysis["fields"]
+                for fld in analysis["needs_review"]:
+                    review_items.append((rel, fld))
+
+            file_reports.append(entry)
             total_pii_count += pii_count
-            
+
             if pii_count > 0:
                 logger.info(f"  {file_path.name}: {pii_count} PII values ({file_type})")
         except Exception as e:
@@ -403,22 +414,42 @@ def scan_command(args):
             if report['pii_count'] > 0:
                 size_str = f"{report['size'] / 1024:.1f} KB"
                 print(f"    {report['path']:40} {report['pii_count']:4} PII values  ({size_str})")
-    
+
+    if audit:
+        print("\n  Field confidence (audit mode):")
+        for report in file_reports:
+            for fld in report.get("fields", []):
+                conf = fld["confidence"]
+                level = "HIGH" if conf >= 0.8 else "MED " if conf >= 0.5 else "LOW "
+                flag = "  ⚠ review" if fld["needs_review"] else ""
+                tname = fld["type"] or "?"
+                print(f"    [{level}] {report['path']}::{fld['field']} "
+                      f"→ {tname} (match {fld['match_rate']:.0%}){flag}")
+        if review_items:
+            print(f"\n  ⚠ {len(review_items)} field(s) need review "
+                  "(name suggests PII but detector is unsure):")
+            for path, fld in review_items:
+                print(f"    - {path}::{fld}")
+        else:
+            print("\n  ✓ No uncertain fields flagged.")
+
     print(f"{'=' * 60}\n")
-    
+
     # Save report if requested
     if args.output:
         output_path = Path(args.output)
         output_path.parent.mkdir(parents=True, exist_ok=True)
-        
+
         scan_report = {
             "source": str(source),
             "scan_time": datetime.now().isoformat(),
             "total_files": len(file_reports),
             "total_pii": total_pii_count,
+            "audit": audit,
+            "needs_review": [{"path": p, "field": f} for p, f in review_items],
             "files": file_reports,
         }
-        
+
         output_path.write_text(json.dumps(scan_report, indent=2), encoding='utf-8')
         logger.info(f"Scan report saved to {output_path}")
 
@@ -700,6 +731,8 @@ Environment variables:
     p = sub.add_parser("scan", help="Scan for PII without migration")
     p.add_argument("--source", default="examples", help="Source directory to scan")
     p.add_argument("--output", default=None, help="Save scan report to JSON file")
+    p.add_argument("--audit", action="store_true",
+                   help="Per-field confidence breakdown + flag fields needing review")
     p.set_defaults(func=scan_command)
 
     args = parser.parse_args()

@@ -59,10 +59,33 @@ cloakpii migrate --source data/ --audit out/audit.jsonl --compress
 # Scan only — find PII without migrating
 cloakpii scan --source data/ --output scan_report.json
 
+# Audit mode — per-field confidence + flag fields that need human review
+cloakpii scan --source data/ --audit
+
 # Restore an output tree, then reverse tokens
 cloakpii decrypt-all --input out/encrypted --output restored/
 cloakpii detokenize  --input restored/     --output original/
 ```
+
+## Audit mode (`scan --audit`)
+
+`--audit` adds a per-field confidence breakdown to the scan and, crucially,
+flags fields that **need human review** — columns whose *name* suggests PII but
+whose values don't match a known pattern (free-text names, unusual formats, the
+regex's blind spots). This is where undetected PII tends to hide.
+
+```text
+[HIGH] u.csv::email      → email (match 100%)
+[HIGH] u.csv::phone      → phone (match 100%)
+[LOW ] u.csv::full_name  → name-based (match 0%)   ⚠ review
+
+⚠ 1 field(s) need review (name suggests PII but detector is unsure):
+  - u.csv::full_name
+```
+
+Confidence levels: **HIGH** (values match a specific pattern), **MED** (name
+signals PII and some values match), **LOW** (name signals PII but no values
+match — review these).
 
 ## Incremental migration & resume
 

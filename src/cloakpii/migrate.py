@@ -727,6 +727,97 @@ def _preview_sqlite(filepath: Path) -> dict:
     return info
 
 
+# ---------------------------------------------------------------------------
+# Confidence analysis (audit mode) — used by `scan`
+# ---------------------------------------------------------------------------
+
+_ANALYZE_SAMPLE_CAP = 2000  # max values sampled per field, for speed
+
+
+def _collect_field_values(filepath: Path, file_type: str, cap: int = _ANALYZE_SAMPLE_CAP) -> dict:
+    """Collect up to ``cap`` values per field for confidence analysis.
+
+    Returns a dict of field name → list of values. Only tabular/structured
+    formats expose fields; plain text returns an empty dict.
+    """
+    fields: dict = {}
+
+    def add(name, value):
+        if value is None:
+            return
+        bucket = fields.setdefault(str(name), [])
+        if len(bucket) < cap:
+            bucket.append(value)
+
+    if file_type in ("csv", "tsv"):
+        import csv as _csv
+        delim = "\t" if file_type == "tsv" else ","
+        with open(filepath, newline="", encoding="utf-8") as f:
+            for row in _csv.DictReader(f, delimiter=delim):
+                for k, v in row.items():
+                    add(k, v)
+    elif file_type == "json":
+        with open(filepath, encoding="utf-8") as f:
+            data = json.load(f)
+
+        def walk(node):
+            if isinstance(node, dict):
+                for k, v in node.items():
+                    if isinstance(v, (dict, list)):
+                        walk(v)
+                    else:
+                        add(k, v)
+            elif isinstance(node, list):
+                for item in node:
+                    walk(item)
+        walk(data)
+    elif file_type == "excel":
+        import openpyxl
+        wb = openpyxl.load_workbook(filepath, read_only=True)
+        for ws in wb.worksheets:
+            rows = ws.iter_rows(values_only=True)
+            try:
+                header = next(rows)
+            except StopIteration:
+                continue
+            for row in rows:
+                for name, val in zip(header, row):
+                    add(name or "", val)
+        wb.close()
+    elif file_type == "parquet":
+        import pyarrow.parquet as pq
+        table = pq.read_table(filepath)
+        for name in table.schema.names:
+            fields[name] = table.column(name).slice(0, cap).to_pylist()
+    elif file_type == "sqlite":
+        import sqlite3
+        with sqlite3.connect(filepath) as conn:
+            cur = conn.cursor()
+            cur.execute("SELECT name FROM sqlite_master WHERE type='table';")
+            for (tname,) in cur.fetchall():
+                if not tname.isidentifier():
+                    continue
+                cur.execute(f'PRAGMA table_info("{tname}");')
+                cols = [c[1] for c in cur.fetchall()]
+                cur.execute(f'SELECT * FROM "{tname}" LIMIT {cap};')
+                for row in cur.fetchall():
+                    for name, val in zip(cols, row):
+                        add(f"{tname}.{name}", val)
+    return fields
+
+
+def analyze_file(filepath: Path, file_type: str) -> dict:
+    """Return a per-field confidence breakdown for one file."""
+    from .pii import field_confidence
+    field_values = _collect_field_values(filepath, file_type)
+    fields = [field_confidence(name, vals) for name, vals in field_values.items()]
+    fields = [f for f in fields if f["confidence"] > 0 or f["needs_review"]]
+    return {
+        "fields": fields,
+        "needs_review": [f["field"] for f in fields if f["needs_review"]],
+    }
+
+
 def _desensitize_file(filepath: Path, output_path: Path, file_type: str,
                       mode="mask", tokenizer=None, field_policies=None) -> dict:
     """Transform a file (mask/tokenize/detokenize) and return PII report info."""
