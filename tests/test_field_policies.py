@@ -118,5 +118,26 @@ class TestEndToEndAndConfig(unittest.TestCase):
         self.assertEqual(loaded.field_policies, {"email": "tokenize", "salary": "drop"})
 
 
+class TestCliOverridePolicies(unittest.TestCase):
+    """force-mask a non-PII-named column + drop a column, via run_migration."""
+
+    def test_force_mask_and_drop(self):
+        from cloakpii.migrate import run_migration, decrypt_tree
+        tmp = Path(tempfile.mkdtemp())
+        src = tmp / "src"
+        src.mkdir()
+        out = tmp / "out"
+        (src / "u.csv").write_text("user_ref,salary\nABC123,88000\nDEF456,90000\n")
+        run_migration(source_dir=src, output_dir=out, password="pw",
+                      field_policies={"user_ref": "mask", "salary": "drop"},
+                      show_progress=False, generate_manifest=False)
+        dec = tmp / "dec"
+        decrypt_tree(out / "encrypted", dec, "pw")
+        content = (dec / "u.csv").read_text()
+        self.assertNotIn("salary", content)     # column dropped
+        self.assertNotIn("ABC123", content)     # user_ref force-masked
+        self.assertNotIn("88000", content)
+
+
 if __name__ == "__main__":
     unittest.main()

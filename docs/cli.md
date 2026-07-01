@@ -38,6 +38,10 @@ cloakpii migrate [OPTIONS]
 --no-manifest           Skip SHA-256 manifest generation
 --audit FILE            Path for audit log (JSON Lines)
 --skip-patterns PAT...  Glob patterns for files to skip
+--force-mask COL...     Always mask these columns (even if not auto-detected)
+--never-mask COL...     Never touch these columns (keep as-is)
+--drop-field COL...     Remove these columns entirely from the output
+--pattern NAME=REGEX    Add a custom PII detection pattern (repeatable)
 --verbose               Enable debug logging
 --log-file FILE         Write logs to file
 ```
@@ -56,6 +60,11 @@ cloakpii migrate --source data/ --output out/ --resume
 
 # With audit log and compression
 cloakpii migrate --source data/ --audit out/audit.jsonl --compress
+
+# Correct detection per-dataset: force/never mask, drop a column, add a pattern
+cloakpii migrate --source data/ --output out/ \
+  --force-mask customer_ref --never-mask internal_code \
+  --drop-field salary --pattern "empid=EMP\d{6}"
 
 # Scan only — find PII without migrating
 cloakpii scan --source data/ --output scan_report.json

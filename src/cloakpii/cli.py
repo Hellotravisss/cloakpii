@@ -184,7 +184,30 @@ def migrate_command(args):
         if config.log_file:
             log_file = log_file or config.log_file
 
-    field_policies = config.field_policies if config and config.field_policies else None
+    # Field policies: config file first, then CLI overrides layered on top.
+    field_policies = dict(config.field_policies) if config and config.field_policies else {}
+
+    def _add(cols, action):
+        for c in (cols or []):
+            for name in str(c).split(","):
+                if name.strip():
+                    field_policies[name.strip().lower()] = action
+
+    _add(getattr(args, "force_mask", None), "mask")
+    _add(getattr(args, "never_mask", None), "keep")
+    _add(getattr(args, "drop_field", None), "drop")
+    field_policies = field_policies or None
+
+    # Ad-hoc custom detection patterns (name=regex), layered onto config's.
+    for spec in (getattr(args, "pattern", None) or []):
+        if "=" in spec:
+            from .pii import register_custom_pii_pattern
+            pname, regex = spec.split("=", 1)
+            try:
+                register_custom_pii_pattern(pname.strip(), regex.strip())
+            except ValueError as exc:
+                logger.error(str(exc))
+                sys.exit(1)
 
     if args.audit:
         audit_path = Path(args.audit)
@@ -765,6 +788,14 @@ Environment variables:
     p.add_argument("--no-manifest", action="store_true", help="Skip manifest generation")
     p.add_argument("--audit", default=None, help="Path for audit log (JSON Lines)")
     p.add_argument("--skip-patterns", nargs="*", default=None, help="Glob patterns to skip")
+    p.add_argument("--force-mask", nargs="*", default=None, metavar="COL",
+                   help="Always mask these columns (comma/space separated)")
+    p.add_argument("--never-mask", nargs="*", default=None, metavar="COL",
+                   help="Never touch these columns (keep as-is)")
+    p.add_argument("--drop-field", nargs="*", default=None, metavar="COL",
+                   help="Remove these columns entirely from the output")
+    p.add_argument("--pattern", action="append", default=None, metavar="NAME=REGEX",
+                   help="Add a custom PII detection pattern (repeatable)")
     p.set_defaults(func=migrate_command)
 
     # --- verify ---
