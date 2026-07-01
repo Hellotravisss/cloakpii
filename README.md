@@ -85,20 +85,21 @@ Three things to understand before you rely on it:
 
 - **Masking (the default mode) is irreversible.** Masked values (`alice@x.com` → `a***@x******.com`) cannot be recovered — even after you decrypt. If you need the data to stay **usable** (joins, dedup) and recoverable, use `--mode tokenize`.
 - **Compliance output is documentation, not legal sign-off.** The `profiles`, `assessment`, and `--compliance-report` features generate checklists and declaration templates to *help* you prepare a filing. They are not legal advice — have counsel review actual cross-border filings.
-- **Detection is not exhaustive.** The built-in detector is regex + column-name keywords. By design it does **not** catch: phone numbers written as bare digit runs with no separators (e.g. `13812345678` — masked only if the column name signals PII), old 15-digit Chinese IDs, IPv6 addresses, free-text personal names, or PII glued directly to surrounding letters. Enable the optional ML backend (see [ML_SETUP.md](ML_SETUP.md)) for names and broader coverage, and **spot-check the output on a sample before trusting a new dataset.**
+- **Detection is not exhaustive.** The built-in detector is regex + column-name keywords. It catches structured PII well — including bare-digit Chinese mobiles (`13812345678`), 15- and 18-digit Chinese IDs, and IPv6 — but by design it does **not** catch **free-text personal names** or PII glued directly to surrounding letters. Enable the optional ML backend (see [ML_SETUP.md](ML_SETUP.md)) for names, run `cloakpii scan --audit` to see which fields it's unsure about, and **spot-check the output on a sample before trusting a new dataset.**
 
 ---
 
 ## Features
 
 - **Two modes**: irreversible **masking** or reversible, join-preserving **tokenization**
+- **Per-field policies**: pin any field to `mask` / `tokenize` / `drop` / `keep`
 - **8 file formats**: CSV, JSON, Excel, Parquet, XML, TSV, SQLite, plain text
-- **11 PII types**: email, phone, SSN, credit card, IP, Chinese ID, passport, bank account, IBAN, MAC address, date of birth
+- **Database sources**: export PostgreSQL / MySQL / SQLite tables with `db-export`
+- **11 PII types** incl. bare-digit Chinese mobiles, 15/18-digit Chinese IDs, IPv6; Chinese **and** English column names
 - **5 compliance profiles**: GDPR (EU), PDPA (Singapore), CCPA (California), LGPD (Brazil), PIPL (China)
-- **AES-256-GCM encryption** with PBKDF2 key derivation (480k iterations)
-- **Parallel processing**, **progress bar**, **resume** interrupted runs
-- **Integrity verification** via SHA-256 manifests, **audit trail** (JSON Lines)
-- **YAML configuration** with CLI overrides, **gzip compression**, **Docker** support
+- **AES-256-GCM encryption** (PBKDF2, 480k iters); **streaming** for large files (constant memory)
+- **Audit mode** (`scan --audit`) flags fields the detector is unsure about
+- **Parallel processing**, **progress bar**, **resume**, **SHA-256 manifests**, **audit trail**, **YAML config**, **Docker**
 
 ## Quick Start
 
@@ -142,7 +143,8 @@ cloakpii decrypt-all --input output/encrypted --output restored/
 | `decrypt`     | Decrypt a single file                         |
 | `decrypt-all` | Decrypt a whole migration output tree         |
 | `detokenize`  | Reverse `--mode tokenize` back to originals   |
-| `scan`        | Scan a directory for PII without migrating    |
+| `scan`        | Scan for PII (add `--audit` for per-field confidence) |
+| `db-export`   | Export DB tables (Postgres/MySQL/SQLite) to CSV for migration |
 | `assessment`  | Generate a PIPL Security Assessment template  |
 | `init`        | Initialize project configuration              |
 | `verify`      | Verify file integrity against a manifest      |

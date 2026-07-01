@@ -28,9 +28,12 @@ deactivate
 
 ## How It Works
 
-- When Presidio is available, ML detection is automatically enabled
-- When Presidio is not available, the system falls back to regex + custom patterns
-- The ML environment is isolated from the main project environment
+- Backend precedence: **Presidio** (if installed) → **spaCy** → regex only.
+- The spaCy backend needs its model installed **explicitly** — CloakPII does
+  **not** auto-download it. Run `python -m spacy download en_core_web_sm`. If the
+  model is missing, ML detection is disabled and CloakPII logs a warning and
+  falls back to regex + custom patterns (it never fetches a model at runtime).
+- Without any ML backend, detection is regex + column-name keywords only.
 
 ## Benefits
 
