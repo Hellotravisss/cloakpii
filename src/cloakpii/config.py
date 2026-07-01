@@ -8,11 +8,29 @@ which can be overridden by CLI arguments.
 from __future__ import annotations
 
 import argparse
+import logging
 import os
 from dataclasses import dataclass, field, asdict
 from pathlib import Path
 
 import yaml
+
+logger = logging.getLogger("CloakPII")
+
+
+def _register_custom_patterns(patterns) -> None:
+    """(Re)register the config's custom PII patterns, replacing any previous set."""
+    if not patterns:
+        return
+    try:
+        from .pii import register_custom_pii_pattern, CUSTOM_PII_PATTERNS
+        CUSTOM_PII_PATTERNS.clear()
+        for pattern_str in patterns:
+            if ":" in pattern_str:
+                name, pattern = pattern_str.split(":", 1)
+                register_custom_pii_pattern(name.strip(), pattern.strip())
+    except Exception as e:
+        logger.warning(f"Failed to register custom PII patterns: {e}")
 
 
 @dataclass
@@ -79,17 +97,7 @@ def load_config(path: Path) -> MigrationConfig:
             setattr(config, key, value)
 
     # Auto-register custom PII patterns if present
-    if config.custom_pii_patterns:
-        try:
-            from .pii import register_custom_pii_pattern, CUSTOM_PII_PATTERNS
-            CUSTOM_PII_PATTERNS.clear()  # Clear previous registrations
-            for pattern_str in config.custom_pii_patterns:
-                if ":" in pattern_str:
-                    name, pattern = pattern_str.split(":", 1)
-                    register_custom_pii_pattern(name.strip(), pattern.strip())
-        except Exception as e:
-            import logging
-            logging.getLogger("CloakPII").warning(f"Failed to register custom PII patterns: {e}")
+    _register_custom_patterns(config.custom_pii_patterns)
 
     return config
 
@@ -109,8 +117,7 @@ def save_config(config: MigrationConfig, path: Path) -> None:
     # the environment, --key-file, or the interactive prompt at run time.
     for secret in ("password", "key_file"):
         if data.get(secret):
-            import logging
-            logging.getLogger("CloakPII").warning(
+            logger.warning(
                 f"Not writing '{secret}' to config file {path} — provide it via "
                 "CLOAKPII_PASSWORD, --key-file, or the interactive prompt instead."
             )
@@ -178,16 +185,6 @@ def merge_config_with_args(
         config.show_progress = False
 
     # Auto-register custom PII patterns if present
-    if config.custom_pii_patterns:
-        try:
-            from .pii import register_custom_pii_pattern, CUSTOM_PII_PATTERNS
-            CUSTOM_PII_PATTERNS.clear()  # Clear previous registrations
-            for pattern_str in config.custom_pii_patterns:
-                if ":" in pattern_str:
-                    name, pattern = pattern_str.split(":", 1)
-                    register_custom_pii_pattern(name.strip(), pattern.strip())
-        except Exception as e:
-            import logging
-            logging.getLogger("CloakPII").warning(f"Failed to register custom PII patterns: {e}")
+    _register_custom_patterns(config.custom_pii_patterns)
 
     return config

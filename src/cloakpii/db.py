@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import csv
 from pathlib import Path
-from urllib.parse import urlparse
+from urllib.parse import unquote, urlparse
 
 _FETCH_BATCH = 5000
 
@@ -57,13 +57,15 @@ def _connect(url: str):
                 "Install it with: pip install cloakpii[mysql]"
             ) from exc
         p = urlparse(url)
+        # urlparse does NOT percent-decode credential components; @ : / in a
+        # password must be encoded to parse, so decode them before the driver.
         return (
             pymysql.connect(
                 host=p.hostname or "localhost",
                 port=p.port or 3306,
-                user=p.username,
-                password=p.password,
-                database=(p.path or "/").lstrip("/"),
+                user=unquote(p.username) if p.username else None,
+                password=unquote(p.password) if p.password is not None else None,
+                database=unquote((p.path or "/").lstrip("/")),
             ),
             "mysql",
         )
