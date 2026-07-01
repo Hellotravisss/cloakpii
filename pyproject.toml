@@ -22,8 +22,11 @@ classifiers = [
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
+    "Topic :: Security",
     "Topic :: Security :: Cryptography",
     "Topic :: Software Development :: Libraries :: Python Modules",
+    "Natural Language :: English",
+    "Natural Language :: Chinese (Simplified)",
 ]
 dependencies = [
     "cryptography>=42.0",
@@ -37,9 +40,11 @@ dependencies = [
 [project.optional-dependencies]
 postgres = ["psycopg>=3.1"]
 mysql = ["PyMySQL>=1.1"]
+dev = ["pytest>=7.0", "pytest-cov", "ruff", "build", "twine", "bandit[toml]", "pip-audit"]
 
 [project.urls]
 Homepage = "https://github.com/Hellotravisss/cloakpii"
+Documentation = "https://hellotravisss.github.io/cloakpii/"
 Repository = "https://github.com/Hellotravisss/cloakpii"
 Changelog = "https://github.com/Hellotravisss/cloakpii/blob/main/CHANGELOG.md"
 Issues = "https://github.com/Hellotravisss/cloakpii/issues"
@@ -58,3 +63,12 @@ package-dir = {"" = "src"}
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+[tool.bandit]
+# Audited false positives:
+#   B608 (SQL via f-string): table/column identifiers are validated with
+#     str.isidentifier() and double-quoted before interpolation
+#     (see desensitize_sqlite, db._quote, _preview_sqlite).
+#   B314 (ElementTree): XML is parsed with defusedxml when available, with a
+#     DOCTYPE-stripping fallback for the rare no-defusedxml case (desensitize_xml).
+skips = ["B608", "B314"]
