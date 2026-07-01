@@ -66,6 +66,34 @@ DATE_OF_BIRTH_RE = re.compile(
 IBAN_RE = re.compile(r"\b[A-Z]{2}\d{2}[A-Z0-9]{4}\d{7,16}\b")
 MAC_ADDRESS_RE = re.compile(r"\b(?:[0-9A-Fa-f]{2}[:-]){5}[0-9A-Fa-f]{2}\b")
 
+# Pre-2013 15-digit Chinese ID: 6-digit region + YYMMDD + 3-digit sequence
+# (no checksum). Anchoring the embedded date keeps false positives (order IDs,
+# transaction refs) near zero. Digit-boundary lookarounds so it never fires
+# inside a longer run (e.g. an 18-digit ID or a bank number).
+CHINESE_ID_15_RE = re.compile(
+    r"(?<!\d)\d{6}\d{2}(?:0[1-9]|1[0-2])(?:0[1-9]|[12]\d|3[01])\d{3}(?!\d)"
+)
+# Bare 11-digit mainland China mobile (13x–19x). The 1[3-9] prefix rejects
+# order IDs / timestamps; lookarounds prevent gobbling substrings of longer
+# numbers. Ordered AFTER the ID/bank/card patterns so it never fires inside one.
+CN_MOBILE_RE = re.compile(r"(?<!\d)1[3-9]\d{9}(?!\d)")
+# IPv6, including :: compression. Comprehensive alternation so mid-address ::
+# is handled; requires 8 groups OR a :: so it never matches a 6-group MAC or a
+# clock time. Lookarounds avoid eating surrounding word/dot/colon context.
+IPV6_RE = re.compile(
+    r"(?<![:.\w])(?:"
+    r"(?:[0-9A-Fa-f]{1,4}:){7}[0-9A-Fa-f]{1,4}"
+    r"|(?:[0-9A-Fa-f]{1,4}:){1,7}:"
+    r"|(?:[0-9A-Fa-f]{1,4}:){1,6}:[0-9A-Fa-f]{1,4}"
+    r"|(?:[0-9A-Fa-f]{1,4}:){1,5}(?::[0-9A-Fa-f]{1,4}){1,2}"
+    r"|(?:[0-9A-Fa-f]{1,4}:){1,4}(?::[0-9A-Fa-f]{1,4}){1,3}"
+    r"|(?:[0-9A-Fa-f]{1,4}:){1,3}(?::[0-9A-Fa-f]{1,4}){1,4}"
+    r"|(?:[0-9A-Fa-f]{1,4}:){1,2}(?::[0-9A-Fa-f]{1,4}){1,5}"
+    r"|[0-9A-Fa-f]{1,4}:(?::[0-9A-Fa-f]{1,4}){1,6}"
+    r"|:(?::[0-9A-Fa-f]{1,4}){1,7}"
+    r")(?![:.\w])"
+)
+
 # Column-name keywords that trigger name-based masking
 NAME_KEYWORDS = {
     # English keywords
@@ -79,6 +107,13 @@ NAME_KEYWORDS = {
     "身份证", "身份证号", "身份证号码", "地址", "住址", "银行账户",
     "银行卡", "银行卡号", "护照", "护照号", "信用卡", "信用卡号",
     "出生日期", "生日", "mac地址", "驾照", "驾照号",
+    # additional English identity/contact headers (kept specific to avoid
+    # over-masking generic columns like product_id/video_id)
+    "contact", "cell", "fax", "zip", "zipcode", "postal", "postcode",
+    "tax_id", "tin", "nino", "wechat", "openid", "unionid",
+    # additional Chinese headers
+    "联系电话", "联系方式", "固话", "座机", "传真", "昵称",
+    "证件号", "证件号码", "卡号", "开户行", "邮编", "客户名", "用户名",
 }
 
 
@@ -195,6 +230,14 @@ def mask_ip(val: str) -> str:
     return f"{parts[0]}.{parts[1]}.*.*"
 
 
+def mask_ipv6(val: str) -> str:
+    """2001:db8::8a2e:370:7334 → 2001:**** (keep first hextet, mask the rest)."""
+    idx = val.find(":")
+    if idx <= 0:
+        return "****"  # leading '::' forms (e.g. ::1) — mask fully
+    return val[:idx] + ":****"
+
+
 def mask_generic(val: str) -> str:
     """Generic masking: keep first char, replace rest with ***."""
     if not val or len(val) < 2:
@@ -252,32 +295,46 @@ def mask_mac(val: str) -> str:
 # Auto-detect & mask a single string value
 # ---------------------------------------------------------------------------
 
+# Canonical (type, regex, masker) list — the SINGLE source of truth for both
+# pattern order and membership. mask_value, _PII_MATCHERS and desensitize_text
+# all derive from this, so a new type is added in exactly one place (this is
+# what previously let date_of_birth drift out of the detection path).
+# Order = most specific first. Ordering notes:
+#   - 15-digit Chinese ID after the 18-digit one (18-digit wins).
+#   - IPv6 before MAC; the IPv6 regex requires 8 groups or '::' so it never
+#     matches a 6-group MAC, and MAC requires exactly-2-hex groups so it never
+#     matches a 4-hex-group IPv6 — the two do not collide.
+#   - Bare CN mobile after the ID/bank/card patterns so it never fires inside one.
+_PATTERN_MASKERS = [
+    ("ssn", SSN_RE, mask_ssn),
+    ("chinese_id", CHINESE_ID_RE, mask_chinese_id),
+    ("chinese_id", CHINESE_ID_15_RE, mask_chinese_id),
+    ("iban", IBAN_RE, mask_iban),
+    ("credit_card", CREDIT_CARD_RE, mask_credit_card),
+    ("bank_account", BANK_ACCOUNT_RE, mask_bank_account),
+    ("passport", PASSPORT_RE, mask_passport),
+    ("email", EMAIL_RE, mask_email),
+    ("ipv6", IPV6_RE, mask_ipv6),
+    ("ip", IP_RE, mask_ip),
+    ("mac_address", MAC_ADDRESS_RE, mask_mac),
+    ("cn_mobile", CN_MOBILE_RE, mask_phone),
+    ("phone", PHONE_RE, mask_phone),
+    ("date_of_birth", DATE_OF_BIRTH_RE, mask_dob),
+]
+
+
 def mask_value(val: str) -> str:
-    """Apply all regex-based PII masks to a string value."""
+    """Apply all regex-based PII masks to a string value, most specific first."""
     if not isinstance(val, str):
         return val
     result = val
-    # Order matters: more specific patterns first
-    result = SSN_RE.sub(lambda m: mask_ssn(m.group()), result)
-    result = CHINESE_ID_RE.sub(lambda m: mask_chinese_id(m.group()), result)
-    result = IBAN_RE.sub(lambda m: mask_iban(m.group()), result)
-    result = CREDIT_CARD_RE.sub(lambda m: mask_credit_card(m.group()), result)
-    result = BANK_ACCOUNT_RE.sub(lambda m: mask_bank_account(m.group()), result)
-    result = PASSPORT_RE.sub(lambda m: mask_passport(m.group()), result)
-    result = EMAIL_RE.sub(lambda m: mask_email(m.group()), result)
-    result = IP_RE.sub(lambda m: mask_ip(m.group()), result)
-    result = MAC_ADDRESS_RE.sub(lambda m: mask_mac(m.group()), result)
-    result = PHONE_RE.sub(lambda m: mask_phone(m.group()), result)
+    for _name, regex, masker in _PATTERN_MASKERS:
+        result = regex.sub(lambda m, fn=masker: fn(m.group()), result)
     return result
 
 
 # Regex → PII type name, in the same priority order as mask_value.
-_PII_MATCHERS = [
-    ("ssn", SSN_RE), ("chinese_id", CHINESE_ID_RE), ("iban", IBAN_RE),
-    ("credit_card", CREDIT_CARD_RE), ("bank_account", BANK_ACCOUNT_RE),
-    ("passport", PASSPORT_RE), ("email", EMAIL_RE), ("ip", IP_RE),
-    ("mac_address", MAC_ADDRESS_RE), ("phone", PHONE_RE),
-]
+_PII_MATCHERS = [(name, regex) for name, regex, _fn in _PATTERN_MASKERS]
 
 # Confidence levels for detected PII.
 CONFIDENCE_HIGH = 0.95    # values match a specific regex pattern
@@ -453,22 +510,8 @@ def desensitize_text(text: str, mode="mask", tokenizer=None) -> tuple:
 
     count = 0
 
-    # Define all pattern-masker pairs explicitly
-    pattern_maskers = [
-        (SSN_RE, mask_ssn),
-        (CHINESE_ID_RE, mask_chinese_id),
-        (IBAN_RE, mask_iban),
-        (CREDIT_CARD_RE, mask_credit_card),
-        (BANK_ACCOUNT_RE, mask_bank_account),
-        (PASSPORT_RE, mask_passport),
-        (EMAIL_RE, mask_email),
-        (IP_RE, mask_ip),
-        (MAC_ADDRESS_RE, mask_mac),
-        (PHONE_RE, mask_phone),
-    ]
-
-    # Process each pattern
-    for pattern, masker_fn in pattern_maskers:
+    # Process each pattern from the canonical single-source list.
+    for _name, pattern, masker_fn in _PATTERN_MASKERS:
         def make_replacer(fn):
             """Create a replacer function with proper closure."""
             def _replace(m):
@@ -504,15 +547,15 @@ def desensitize_text(text: str, mode="mask", tokenizer=None) -> tuple:
 # CSV
 # ---------------------------------------------------------------------------
 
-def desensitize_csv(input_path: Path, output_path: Path, mode="mask", tokenizer=None,
-                    field_policies=None) -> DesensitizeReport:
-    """Read CSV, transform PII in every cell, write to output_path."""
+def _desensitize_delimited(input_path: Path, output_path: Path, delimiter: str,
+                           mode="mask", tokenizer=None, field_policies=None) -> DesensitizeReport:
+    """Shared CSV/TSV transform — the only difference is the delimiter."""
     report = DesensitizeReport()
     input_path = Path(input_path)
     output_path = Path(output_path)
 
     with open(input_path, newline="", encoding="utf-8") as f:
-        reader = csv.DictReader(f)
+        reader = csv.DictReader(f, delimiter=delimiter)
         fieldnames = reader.fieldnames or []
 
         dropped = _dropped_fields(fieldnames, field_policies)
@@ -536,11 +579,17 @@ def desensitize_csv(input_path: Path, output_path: Path, mode="mask", tokenizer=
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     with open(output_path, "w", newline="", encoding="utf-8") as f:
-        writer = csv.DictWriter(f, fieldnames=out_fields)
+        writer = csv.DictWriter(f, fieldnames=out_fields, delimiter=delimiter)
         writer.writeheader()
         writer.writerows(rows)
 
     return report
+
+
+def desensitize_csv(input_path: Path, output_path: Path, mode="mask", tokenizer=None,
+                    field_policies=None) -> DesensitizeReport:
+    """Read CSV, transform PII in every cell, write to output_path."""
+    return _desensitize_delimited(input_path, output_path, ",", mode, tokenizer, field_policies)
 
 
 # ---------------------------------------------------------------------------
@@ -784,21 +833,26 @@ def desensitize_xml(input_path: Path, output_path: Path, mode="mask", tokenizer=
     root = tree.getroot()
     drops = mode != "detokenize" and bool(field_policies)
 
+    def _local(tag):
+        """Strip the '{namespace}' prefix ElementTree adds to namespaced tags."""
+        return tag.split("}", 1)[-1] if isinstance(tag, str) else tag
+
     def _mask_element(elem):
         """Recursively transform PII in an XML element."""
         # Drop child elements whose tag policy says so (mask/tokenize runs only).
         if drops:
             for child in list(elem):
-                if resolve_field_action(child.tag, field_policies) == "drop":
+                if resolve_field_action(_local(child.tag), field_policies) == "drop":
                     elem.remove(child)
 
-        # Element text — use the tag name as the field-name hint
+        # Element text — use the (namespace-stripped) tag name as the field hint
+        tag_name = _local(elem.tag)
         if elem.text and elem.text.strip():
-            new_value, changed = _transform_cell(elem.text, elem.tag, mode, tokenizer, field_policies)
+            new_value, changed = _transform_cell(elem.text, tag_name, mode, tokenizer, field_policies)
             if changed:
                 report.values_masked += 1
-                if _is_pii_field(elem.tag) and elem.tag not in report.fields_masked:
-                    report.fields_masked.append(elem.tag)
+                if _is_pii_field(tag_name) and tag_name not in report.fields_masked:
+                    report.fields_masked.append(tag_name)
                 elem.text = new_value
 
         # Tail text (after closing tag) — no field-name context
@@ -808,16 +862,17 @@ def desensitize_xml(input_path: Path, output_path: Path, mode="mask", tokenizer=
                 report.values_masked += 1
                 elem.tail = new_value
 
-        # Attributes
+        # Attributes (namespace-stripped for policy/detection)
         for attr_name, attr_val in list(elem.attrib.items()):
-            if drops and resolve_field_action(attr_name, field_policies) == "drop":
+            local_attr = _local(attr_name)
+            if drops and resolve_field_action(local_attr, field_policies) == "drop":
                 del elem.attrib[attr_name]
                 continue
-            new_value, changed = _transform_cell(attr_val, attr_name, mode, tokenizer, field_policies)
+            new_value, changed = _transform_cell(attr_val, local_attr, mode, tokenizer, field_policies)
             if changed:
                 report.values_masked += 1
-                if attr_name not in report.fields_masked:
-                    report.fields_masked.append(attr_name)
+                if local_attr not in report.fields_masked:
+                    report.fields_masked.append(local_attr)
                 elem.set(attr_name, new_value)
 
         report.rows_processed += 1
@@ -846,40 +901,7 @@ def desensitize_xml(input_path: Path, output_path: Path, mode="mask", tokenizer=
 def desensitize_tsv(input_path: Path, output_path: Path, mode="mask", tokenizer=None,
                     field_policies=None) -> DesensitizeReport:
     """Read TSV file, transform PII in every cell, write to output_path."""
-    report = DesensitizeReport()
-    input_path = Path(input_path)
-    output_path = Path(output_path)
-
-    with open(input_path, newline="", encoding="utf-8") as f:
-        reader = csv.DictReader(f, delimiter="\t")
-        fieldnames = reader.fieldnames or []
-
-        dropped = _dropped_fields(fieldnames, field_policies)
-        out_fields = [fn for fn in fieldnames if fn not in dropped]
-
-        # Determine which fields need name-based masking
-        pii_fields = [fn for fn in out_fields if _is_pii_field(fn)]
-        report.fields_masked = list(pii_fields)
-
-        rows = []
-        for row in reader:
-            report.rows_processed += 1
-            out_row = {}
-            for fn in out_fields:
-                original = row.get(fn, "")
-                new_value, changed = _transform_cell(original, fn, mode, tokenizer, field_policies)
-                if changed:
-                    report.values_masked += 1
-                out_row[fn] = new_value
-            rows.append(out_row)
-
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    with open(output_path, "w", newline="", encoding="utf-8") as f:
-        writer = csv.DictWriter(f, fieldnames=out_fields, delimiter="\t")
-        writer.writeheader()
-        writer.writerows(rows)
-
-    return report
+    return _desensitize_delimited(input_path, output_path, "\t", mode, tokenizer, field_policies)
 
 
 # ---------------------------------------------------------------------------
@@ -1064,15 +1086,3 @@ def register_custom_pii_pattern(name: str, pattern: str):
             f"be vulnerable to catastrophic backtracking (ReDoS): {pattern}"
         )
     CUSTOM_PII_PATTERNS.append((name, pattern))
-
-def _apply_custom_patterns(text: str) -> list[tuple[str, str]]:
-    """Apply registered custom PII patterns to text."""
-    import re
-    matches = []
-    for name, pattern in CUSTOM_PII_PATTERNS:
-        try:
-            for m in re.finditer(pattern, text):
-                matches.append((name, m.group()))
-        except re.error:
-            continue
-    return matches
