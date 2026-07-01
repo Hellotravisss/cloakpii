@@ -1,7 +1,6 @@
 """Regression + gap tests for the v1.6.0 audit fixes."""
 
 import os
-import sqlite3
 import tempfile
 import unittest
 from pathlib import Path
@@ -117,7 +116,6 @@ class TestStreamingHardening(unittest.TestCase):
         header, body, recs = raw[:hdr], raw[hdr:], []
         i = 0
         while i < len(body):
-            ctype = body[i]
             ln = int.from_bytes(body[i + 1:i + 5], "big")
             recs.append(body[i:i + 5 + ln])
             i += 5 + ln
@@ -162,7 +160,8 @@ class TestTokenizeInMaskRun(unittest.TestCase):
     def test_per_field_tokenize_under_global_mask(self):
         from cloakpii.migrate import decrypt_tree, run_migration
         tmp = Path(tempfile.mkdtemp())
-        src = tmp / "src"; src.mkdir()
+        src = tmp / "src"
+        src.mkdir()
         out = tmp / "out"
         (src / "u.csv").write_text("email,phone\nwei@corp.cn,138-1234-5678\n")
         run_migration(source_dir=src, output_dir=out, password="pw", mode="mask",
