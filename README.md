@@ -107,6 +107,17 @@ Three things to understand before you rely on it:
 pip install cloakpii
 ```
 
+The base install is light (CSV / JSON / XML / TSV / SQLite / text). Add extras
+only for the formats/sources you need:
+
+```bash
+pip install "cloakpii[parquet]"    # Parquet (pyarrow)
+pip install "cloakpii[excel]"      # Excel (openpyxl)
+pip install "cloakpii[postgres]"   # PostgreSQL source
+pip install "cloakpii[mysql]"      # MySQL source
+pip install "cloakpii[all]"        # everything
+```
+
 Or from source:
 
 ```bash

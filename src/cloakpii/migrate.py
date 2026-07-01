@@ -607,7 +607,8 @@ def _preview_file(filepath: Path, file_type: str) -> dict:
 
 
 def _preview_excel(filepath: Path) -> dict:
-    import openpyxl
+    from ._deps import require
+    openpyxl = require("openpyxl", "excel")
     from .pii import _is_pii_field, mask_value, mask_generic
     info = {"fields_masked": [], "values_masked": 0, "rows_processed": 0}
     wb = openpyxl.load_workbook(filepath, read_only=True)
@@ -637,8 +638,9 @@ def _preview_excel(filepath: Path) -> dict:
 
 
 def _preview_parquet(filepath: Path) -> dict:
-    import pyarrow.parquet as pq
-    import pyarrow as pa
+    from ._deps import require
+    pq = require("pyarrow.parquet", "parquet")
+    pa = require("pyarrow", "parquet")
     from .pii import _is_pii_field, mask_value, mask_generic
     info = {"fields_masked": [], "values_masked": 0, "rows_processed": 0}
     table = pq.read_table(filepath)
@@ -792,7 +794,8 @@ def _collect_field_values(filepath: Path, file_type: str, cap: int = _ANALYZE_SA
                     walk(item)
         walk(data)
     elif file_type == "excel":
-        import openpyxl
+        from ._deps import require
+        openpyxl = require("openpyxl", "excel")
         wb = openpyxl.load_workbook(filepath, read_only=True)
         for ws in wb.worksheets:
             rows = ws.iter_rows(values_only=True)
@@ -805,7 +808,8 @@ def _collect_field_values(filepath: Path, file_type: str, cap: int = _ANALYZE_SA
                     add(name or "", val)
         wb.close()
     elif file_type == "parquet":
-        import pyarrow.parquet as pq
+        from ._deps import require
+        pq = require("pyarrow.parquet", "parquet")
         table = pq.read_table(filepath)
         for name in table.schema.names:
             fields[name] = table.column(name).slice(0, cap).to_pylist()

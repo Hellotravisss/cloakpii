@@ -667,7 +667,8 @@ def desensitize_json(input_path: Path, output_path: Path, mode="mask", tokenizer
 def desensitize_excel(input_path: Path, output_path: Path, mode="mask", tokenizer=None,
                       field_policies=None) -> DesensitizeReport:
     """Read Excel workbook, transform PII in all sheets, write to output_path."""
-    import openpyxl
+    from ._deps import require
+    openpyxl = require("openpyxl", "excel")
 
     report = DesensitizeReport()
     input_path = Path(input_path)
@@ -727,8 +728,9 @@ def desensitize_excel(input_path: Path, output_path: Path, mode="mask", tokenize
 def desensitize_parquet(input_path: Path, output_path: Path, mode="mask", tokenizer=None,
                         field_policies=None) -> DesensitizeReport:
     """Read Parquet file, transform PII in string columns, write to output_path."""
-    import pyarrow.parquet as pq
-    import pyarrow as pa
+    from ._deps import require
+    pq = require("pyarrow.parquet", "parquet")
+    pa = require("pyarrow", "parquet")
 
     report = DesensitizeReport()
     input_path = Path(input_path)

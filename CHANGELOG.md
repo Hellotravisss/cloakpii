@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.9.0] - 2026-06-30
+
+### Changed
+- **Lighter base install.** `pyarrow` (Parquet) and `openpyxl` (Excel) are now
+  optional extras instead of hard dependencies, so `pip install cloakpii` no
+  longer pulls ~100 MB of wheels for users who only have CSV/JSON/SQLite. Install
+  what you need: `cloakpii[parquet]`, `cloakpii[excel]`, `cloakpii[all]`.
+  Processing a Parquet/Excel file without its extra raises a clear install hint.
+- Added a `dev` extra (`pip install -e ".[dev]"`) covering the test/build/security
+  toolchain; CI now installs it instead of hardcoding tool names.
+
 ## [1.8.0] - 2026-06-30
 
 ### Added

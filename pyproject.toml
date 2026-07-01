@@ -32,15 +32,21 @@ dependencies = [
     "cryptography>=42.0",
     "defusedxml>=0.7",
     "pyyaml>=6.0",
-    "openpyxl>=3.1",
-    "pyarrow>=14.0",
     "tqdm>=4.60",
 ]
 
 [project.optional-dependencies]
+# Format backends are optional so the base install stays light (pyarrow alone is
+# ~100 MB). CSV / JSON / XML / TSV / SQLite / text work with no extra.
+parquet = ["pyarrow>=14.0"]
+excel = ["openpyxl>=3.1"]
 postgres = ["psycopg>=3.1"]
 mysql = ["PyMySQL>=1.1"]
-dev = ["pytest>=7.0", "pytest-cov", "ruff", "build", "twine", "bandit[toml]", "pip-audit"]
+all = ["pyarrow>=14.0", "openpyxl>=3.1", "psycopg>=3.1", "PyMySQL>=1.1"]
+dev = [
+    "pytest>=7.0", "pytest-cov", "ruff", "build", "twine", "bandit[toml]",
+    "pip-audit", "pyarrow>=14.0", "openpyxl>=3.1",
+]
 
 [project.urls]
 Homepage = "https://github.com/Hellotravisss/cloakpii"

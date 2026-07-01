@@ -13,6 +13,11 @@
 | SQLite   | `.db`, `.sqlite`       | All tables (incl. `WITHOUT ROWID`)   |
 | Text     | `.txt`, `.log`, `.md`  | Plain text                           |
 
+!!! note "Optional format backends"
+    CSV / JSON / XML / TSV / SQLite / text work out of the box. **Parquet** needs
+    `pip install "cloakpii[parquet]"` and **Excel** needs `"cloakpii[excel]"`.
+    Trying to process one without its extra gives a clear install hint.
+
 !!! info "Numeric PII is masked too"
     PII held as a *number* (a phone or ID in a JSON number, a Parquet `int`
     column, or a SQLite `INTEGER` column) is masked, not just string values.
