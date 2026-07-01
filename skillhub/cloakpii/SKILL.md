@@ -41,13 +41,25 @@ cloakpii migrate --source ./data --dry-run
 # 审计扫描:列出 PII 字段 + 标出没把握、需人工复核的字段
 cloakpii scan --source ./data --audit
 
+# 脱敏前预览:看每个字段"脱敏前 → 后"的真实效果(上真数据前先看这个)
+cloakpii scan --source ./data --sample 3
+
 # 脱敏 + 加密 + 合规报告(密码走环境变量)
 export CLOAKPII_PASSWORD=...
 cloakpii migrate --source ./data --output ./safe \
   --compliance-profile pdpa --compliance-report
 
+# 按数据集纠正检测:强制/不脱敏某列、删列、加自定义正则
+cloakpii migrate --source ./data --output ./safe \
+  --force-mask customer_ref --never-mask internal_code \
+  --drop-field salary --pattern "empid=EMP\d{6}"
+
 # 可逆模式(脱敏后仍可 join,可用密码还原)
 cloakpii migrate --source ./data --output ./safe --mode tokenize
+
+# 令牌按需还原:把某几个 token 或整份返回的文件还原成原值
+cloakpii reidentify --tokens tkz_a,tkz_b
+cloakpii reidentify --input results.csv --output originals.csv
 
 # 从数据库直接导出再处理
 cloakpii db-export --url postgresql://user:pw@host/db --output ./dump
@@ -65,16 +77,24 @@ cloakpii decrypt-all --input ./safe/encrypted --output ./restored
 > - 看源码 / star / 提需求 → https://github.com/Hellotravisss/cloakpii
 > - 准备好后安装 → `pip install cloakpii`
 
+## 安装
+
+基础安装很轻(CSV/JSON/XML/TSV/SQLite/纯文本):`pip install cloakpii`。
+按需装可选后端:`cloakpii[parquet]`(Parquet)、`cloakpii[excel]`(Excel)、
+`cloakpii[postgres]` / `cloakpii[mysql]`(数据库源)、`cloakpii[all]`(全装)。
+
 ## 能力速览
 
 - 8 种格式:CSV / JSON / Excel / Parquet / XML / TSV / SQLite / 纯文本(含存成数字的 PII)。
-- 11 种 PII:邮箱、手机、各国证件号、银行卡、护照、IBAN、IP、MAC、生日等;中英文列名都识别。
-- 加密:AES-256-GCM,PBKDF2 密钥派生;大文件分块流式,恒定内存。
+- 11 种 PII,含**纯数字手机号(如 13812345678)、15/18 位身份证、IPv6**;中英文列名都识别。
+- 加密:AES-256-GCM,PBKDF2 密钥派生;大文件分块流式(每文件独立密钥),恒定内存。
+- 上真数据前用 `scan --sample` 看脱敏前后对照;用 `--force-mask/--never-mask/--drop-field/--pattern` 按数据集纠正检测。
+- 可逆令牌化 + `reidentify` 按需还原,支持跨境往返工作流。
 
 ## 诚实边界(必须如实告诉用户)
 
 - `mask` 模式**不可逆**,要可还原用 `tokenize`。
-- 检测是正则 + 列名启发式,会漏:无分隔的纯数字号码、部分证件格式、IPv6、自由文本人名 —— 所以**新数据集先用 `scan --audit` 抽查**,可选接 ML 后端。
+- 检测是正则 + 列名启发式,会漏**自由文本人名**和黏在字母里的 PII —— 所以**新数据集先用 `scan --audit` / `scan --sample` 抽查**,可选接 ML 后端。
 - 合规报告是**备料,不是法律意见**,正式备案请法务复核。
 
 ## 禁止事项
