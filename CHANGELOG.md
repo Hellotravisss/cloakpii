@@ -5,6 +5,43 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.6.0] - 2026-06-24
+
+Outcome of a multi-agent audit of the codebase (security, correctness, detection,
+tests, docs, CI).
+
+### Security
+- **Streaming encryption: nonce reuse fixed.** v1.5.0 combined one run-wide AES
+  key with only a 64-bit random per-file nonce prefix; a birthday collision
+  reused (key, nonce) across large files (catastrophic for AES-GCM). Each file
+  now derives an independent key via HKDF-SHA256(run_key, per-file 128-bit salt)
+  with a 96-bit counter nonce. **The streaming format changed (magic
+  CPIISTM1→CPIISTM2); re-encrypt any ≥50 MB files from v1.5.0.** The legacy
+  single-shot format is unchanged.
+- **Streaming decrypt no longer leaves partial plaintext.** A truncated stream
+  used to leave already-decrypted (world-readable-by-umask) plaintext on disk.
+  Decryption now writes to a temp file and atomically promotes it only after the
+  final chunk authenticates.
+- CI now runs `bandit` (static) and `pip-audit`, plus `build` + `twine check`, on
+  every PR; added Dependabot.
+
+### Fixed
+- **Date of birth was never actually masked** despite being advertised — the
+  regex/masker existed but was never wired into detection. Now masked.
+- **MySQL URLs**: username/password/database are percent-decoded, so credentials
+  containing `@ : /` authenticate correctly (matching the Postgres path).
+- **XML per-field policies** now work on namespaced tags/attributes (a `drop`
+  policy on a namespaced element previously leaked it).
+
+### Detection (low false-positive)
+- Bare-digit mainland-China mobiles (`13812345678`), 15-digit legacy Chinese IDs,
+  and IPv6 addresses are now detected. More Chinese/English column-name keywords.
+
+### Internal
+- Single canonical pattern list is now the one source of truth for detection
+  order/membership (the drift that hid the DOB bug). CSV/TSV share one code path;
+  removed dead code; deduped config pattern registration. +17 regression tests.
+
 ## [1.5.0] - 2026-06-20
 
 ### Added
