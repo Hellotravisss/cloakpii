@@ -374,7 +374,7 @@ def scan_command(args):
     logger.info(f"Scanning {source} for PII...")
     
     # Import needed functions
-    from .migrate import _preview_file, _classify_file, analyze_file
+    from .migrate import _preview_file, _classify_file, analyze_file, preview_file
     
     # Collect all files
     files = []
@@ -389,6 +389,7 @@ def scan_command(args):
     logger.info(f"Found {len(files)} files to scan")
     
     audit = getattr(args, "audit", False)
+    sample_n = getattr(args, "sample", 0) or 0
 
     # Scan each file
     total_pii_count = 0
@@ -416,6 +417,9 @@ def scan_command(args):
                 entry["fields"] = analysis["fields"]
                 for fld in analysis["needs_review"]:
                     review_items.append((rel, fld))
+
+            if sample_n:
+                entry["preview"] = preview_file(file_path, file_type, sample_n)["fields"]
 
             file_reports.append(entry)
             total_pii_count += pii_count
@@ -456,6 +460,22 @@ def scan_command(args):
                 print(f"    - {path}::{fld}")
         else:
             print("\n  ✓ No uncertain fields flagged.")
+
+    if sample_n:
+        print(f"\n  Sample preview — what masking would do (first {sample_n} rows/field):")
+        for report in file_reports:
+            preview = report.get("preview") or []
+            if not preview:
+                continue
+            print(f"\n  ── {report['path']} ──")
+            for fld in preview:
+                tag = "MASK" if fld["will_change"] else "keep"
+                for orig, masked in fld["samples"]:
+                    o = orig if len(orig) <= 32 else orig[:29] + "..."
+                    m = masked if len(masked) <= 32 else masked[:29] + "..."
+                    changed = "→ " + m if o != m else "(unchanged)"
+                    print(f"    [{tag:^4}] {fld['field']:<18} {o:<34} {changed}")
+        print("\n  Review the above before running `migrate` on real data.")
 
     print(f"{'=' * 60}\n")
 
@@ -781,6 +801,8 @@ Environment variables:
     p.add_argument("--output", default=None, help="Save scan report to JSON file")
     p.add_argument("--audit", action="store_true",
                    help="Per-field confidence breakdown + flag fields needing review")
+    p.add_argument("--sample", type=int, default=0, metavar="N",
+                   help="Show a before→after masking preview of the first N rows per field")
     p.set_defaults(func=scan_command)
 
     args = parser.parse_args()

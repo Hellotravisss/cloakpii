@@ -83,5 +83,24 @@ class TestAnalyzeFile(unittest.TestCase):
         self.assertEqual(fields["t.email"]["confidence"], CONFIDENCE_HIGH)
 
 
+class TestPreviewSamples(unittest.TestCase):
+    def test_before_after_preview(self):
+        from cloakpii.migrate import preview_file
+        tmp = Path(tempfile.mkdtemp())
+        f = tmp / "u.csv"
+        f.write_text("email,order_id\nalice@corp.com,10001\nbob@corp.com,10002\n")
+        result = preview_file(f, "csv", n=2)
+        by_field = {x["field"]: x for x in result["fields"]}
+        # email is PII → will change, and orig != masked in samples
+        self.assertTrue(by_field["email"]["will_change"])
+        o, m = by_field["email"]["samples"][0]
+        self.assertNotEqual(o, m)
+        self.assertIn("@", m)
+        # order_id is not PII → unchanged
+        self.assertFalse(by_field["order_id"]["will_change"])
+        o2, m2 = by_field["order_id"]["samples"][0]
+        self.assertEqual(o2, m2)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -838,6 +838,27 @@ def analyze_file(filepath: Path, file_type: str) -> dict:
     }
 
 
+def preview_file(filepath: Path, file_type: str, n: int = 3,
+                 field_policies=None) -> dict:
+    """Show, per field, what masking WOULD do to the first ``n`` sample values.
+
+    Returns ``{"fields": [{field, will_change, samples: [(orig, masked), ...]}]}``
+    so a user can eyeball the before→after transform before running on real data.
+    """
+    from .pii import _transform_cell
+    field_values = _collect_field_values(filepath, file_type, cap=n)
+    fields = []
+    for name, vals in field_values.items():
+        samples, will_change = [], False
+        for v in vals[:n]:
+            orig = str(v)
+            masked, changed = _transform_cell(orig, name, "mask", None, field_policies)
+            samples.append((orig, str(masked)))
+            will_change = will_change or changed
+        fields.append({"field": name, "will_change": will_change, "samples": samples})
+    return {"fields": fields}
+
+
 def _desensitize_file(filepath: Path, output_path: Path, file_type: str,
                       mode="mask", tokenizer=None, field_policies=None) -> dict:
     """Transform a file (mask/tokenize/detokenize) and return PII report info."""

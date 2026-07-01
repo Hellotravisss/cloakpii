@@ -63,10 +63,28 @@ cloakpii scan --source data/ --output scan_report.json
 # Audit mode — per-field confidence + flag fields that need human review
 cloakpii scan --source data/ --audit
 
+# Preview — see the exact before→after masking on the first N rows per field
+cloakpii scan --source data/ --sample 3
+
 # Restore an output tree, then reverse tokens
 cloakpii decrypt-all --input out/encrypted --output restored/
 cloakpii detokenize  --input restored/     --output original/
 ```
+
+## Preview masking (`scan --sample N`)
+
+Before pointing CloakPII at real data, `--sample N` shows the **exact before→after
+transform** on the first N values of each field, so you can confirm it masks what
+it should and leaves the rest alone:
+
+```text
+  ── u.csv ──
+    [MASK] email       alice@corp.com    → a***@c******.com
+    [MASK] phone       13812345678       → 138******78
+    [keep] order_id    10001             (unchanged)
+```
+
+Fields marked `MASK` will be transformed; `keep` fields pass through untouched.
 
 ## Audit mode (`scan --audit`)
 
