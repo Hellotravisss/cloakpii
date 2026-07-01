@@ -98,6 +98,47 @@ def decrypt_command(args):
     logger.info(f"Decrypted: {args.input} → {args.output}")
 
 
+def reidentify_command(args):
+    """Resolve specific tokens (or a file full of them) back to originals.
+
+    Tokens produced by `migrate --mode tokenize` are self-reversing with the
+    password, so you can re-identify a subset on demand without detokenizing a
+    whole tree — e.g. results that came back from an offshore processor still
+    carrying `tkz_...` tokens.
+    """
+    from .tokenize import Tokenizer, TOKEN_RE
+    from .crypto import CryptoError
+
+    password = _resolve_password(args)
+    tk = Tokenizer(password)
+
+    # Mode 1: rewrite a file's tokens → originals.
+    if args.input:
+        text = Path(args.input).read_text(encoding="utf-8")
+        n = len(TOKEN_RE.findall(text))
+        restored = tk.detokenize_text(text)
+        if args.output:
+            Path(args.output).parent.mkdir(parents=True, exist_ok=True)
+            Path(args.output).write_text(restored, encoding="utf-8")
+            logger.info(f"Re-identified {n} token(s): {args.input} → {args.output}")
+        else:
+            print(restored, end="")
+        return
+
+    # Mode 2: resolve an explicit list of tokens → print the mapping.
+    tokens = [t.strip() for t in (args.tokens or "").split(",") if t.strip()]
+    if not tokens:
+        logger.error("Provide --tokens tkz_a,tkz_b or --input FILE [--output FILE]")
+        sys.exit(1)
+    print()
+    for t in tokens:
+        try:
+            print(f"  {t}  →  {tk.detokenize(t)}")
+        except CryptoError:
+            print(f"  {t}  →  (not a valid token for this password)")
+    print()
+
+
 def db_export_command(args):
     """Export database tables to CSV files for the migration pipeline."""
     from .db import export_database, DBError
@@ -766,6 +807,16 @@ Environment variables:
     p.add_argument("--password", default=None)
     p.add_argument("--key-file", default=None, help="Read password from file")
     p.set_defaults(func=detokenize_command)
+
+    # --- reidentify ---
+    p = sub.add_parser("reidentify",
+                       help="Resolve specific tokens (or a file of them) back to originals")
+    p.add_argument("--tokens", default=None, help="Comma-separated tokens (tkz_a,tkz_b)")
+    p.add_argument("--input", default=None, help="A file containing tokens to re-identify")
+    p.add_argument("--output", default=None, help="Write re-identified file here (else stdout)")
+    p.add_argument("--password", default=None)
+    p.add_argument("--key-file", default=None, help="Read password from file")
+    p.set_defaults(func=reidentify_command)
 
     # --- migrate ---
     p = sub.add_parser("migrate", help="Run migration pipeline")

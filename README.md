@@ -143,6 +143,7 @@ cloakpii decrypt-all --input output/encrypted --output restored/
 | `decrypt`     | Decrypt a single file                         |
 | `decrypt-all` | Decrypt a whole migration output tree         |
 | `detokenize`  | Reverse `--mode tokenize` back to originals   |
+| `reidentify`  | Resolve specific tokens (or a returned file) back to originals |
 | `scan`        | Scan for PII (add `--audit` for per-field confidence) |
 | `db-export`   | Export DB tables (Postgres/MySQL/SQLite) to CSV for migration |
 | `assessment`  | Generate a PIPL Security Assessment template  |

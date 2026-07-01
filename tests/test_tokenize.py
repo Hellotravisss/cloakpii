@@ -123,3 +123,26 @@ class TestEndToEnd:
             content = (out / "desensitized" / "u.csv").read_text()
             assert TOKEN_PREFIX not in content
             assert "wei@corp.cn" not in content
+
+
+# --- reidentify workflow: resolve specific tokens / a returned file ---
+
+def test_reidentify_specific_token_and_file():
+    tk = Tokenizer("pw")
+    t_wei = tk.tokenize("wei@corp.cn")
+    t_li = tk.tokenize("li@corp.cn")
+    assert tk.tokenize("wei@corp.cn") == t_wei          # join-preserving
+    assert tk.detokenize(t_wei) == "wei@corp.cn"        # resolve one token
+    with tempfile.TemporaryDirectory() as tmp:
+        returned = Path(tmp) / "results.csv"
+        returned.write_text(f"email,score\n{t_wei},9\n{t_li},7\n{t_wei},8\n")
+        restored = tk.detokenize_text(returned.read_text())
+    assert "wei@corp.cn,9" in restored
+    assert "li@corp.cn,7" in restored
+    assert "tkz_" not in restored
+
+
+def test_reidentify_wrong_password_raises():
+    token = Tokenizer("pw").tokenize("secret@x.com")
+    with pytest.raises(CryptoError):
+        Tokenizer("wrong").detokenize(token)

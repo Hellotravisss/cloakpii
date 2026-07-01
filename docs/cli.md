@@ -7,6 +7,7 @@
 | `decrypt`     | Decrypt a single file                         |
 | `decrypt-all` | Decrypt a whole migration output tree         |
 | `detokenize`  | Reverse `--mode tokenize` back to originals   |
+| `reidentify`  | Resolve specific tokens (or a returned file) back to originals |
 | `scan`        | Scan a directory for PII without migrating    |
 | `db-export`   | Export database tables to CSV for migration   |
 | `assessment`  | Generate a PIPL Security Assessment template  |
@@ -121,6 +122,24 @@ With `--resume`, each processed file (path + SHA-256) is recorded in
 `<output>/.migration_state.db`. Later runs skip files whose path and hash are
 unchanged; modified files are re-processed. Delete the state file to force a
 full re-run; a corrupted state DB is rebuilt automatically.
+
+## Re-identify tokens (`reidentify`)
+
+Tokens from `migrate --mode tokenize` are self-reversing with the password, so
+you can re-identify a subset on demand — e.g. results that came back from an
+offshore processor still carrying `tkz_...` tokens — without detokenizing a whole
+tree.
+
+```bash
+# Resolve specific tokens
+cloakpii reidentify --tokens tkz_p6dk3s7…,tkz_cx5kz36…
+
+# Re-identify a whole returned file
+cloakpii reidentify --input results.csv --output originals.csv
+```
+
+The same value always maps to the same token, so joins on the tokenized data
+still work before you re-identify.
 
 ## Database sources (`db-export`)
 
