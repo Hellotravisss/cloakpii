@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.7.0] - 2026-06-30
+
+### Added
+- **Masking preview** — `cloakpii scan --sample N` shows the exact before→after
+  transform on the first N values of each field, so you can confirm what will be
+  masked (and what won't) before running on real data. Included in the `--output`
+  JSON report.
+- **Per-dataset detection overrides** on `migrate`, so you can correct detection
+  without editing YAML:
+  - `--force-mask COL` — always mask a column (even if not auto-detected)
+  - `--never-mask COL` — leave a column untouched
+  - `--drop-field COL` — remove a column entirely
+  - `--pattern NAME=REGEX` — add a custom PII pattern (repeatable)
+  CLI overrides layer on top of any config-file `field_policies`.
+
 ## [1.6.0] - 2026-06-24
 
 Outcome of a multi-agent audit of the codebase (security, correctness, detection,
